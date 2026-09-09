@@ -25,19 +25,19 @@ func newGenerateCommand() *cobra.Command {
 				return errors.New("missing required flag: --seed")
 			}
 			stdout := cmd.OutOrStdout()
-			return runPhase("generation", phaseParameters{Seed: seedPath, MutationCount: &mutationCount, Output: directory, ProgressInterval: progressInterval}, stdout, func() error {
+			return runPhase("generation", phaseParameters{Seed: seedPath, MutationCount: &mutationCount, Output: directory, ProgressInterval: progressInterval}, stdout, func() (phaseResults, error) {
 				seedYAML, err := os.ReadFile(seedPath)
 				if err != nil {
-					return fmt.Errorf("read seed YAML %q: %w", seedPath, err)
+					return phaseResults{}, fmt.Errorf("read seed YAML %q: %w", seedPath, err)
 				}
 				summary, err := generator.Generate(seedYAML, mutationCount, directory, func(completed, total int) {
 					reportProgress(stdout, "generation", completed, total, progressInterval)
 				})
 				if err != nil {
-					return err
+					return phaseResults{}, err
 				}
 				fmt.Fprintf(stdout, "generated %d scenarios\n", summary.Total)
-				return nil
+				return phaseResults{Total: intPointer(summary.Total), MutationOperatorsUsed: intPointer(summary.MutationOperatorsUsed)}, nil
 			})
 		},
 	}
@@ -49,3 +49,5 @@ func newGenerateCommand() *cobra.Command {
 	command.MarkFlagRequired("seed")
 	return command
 }
+
+func intPointer(value int) *int { return &value }

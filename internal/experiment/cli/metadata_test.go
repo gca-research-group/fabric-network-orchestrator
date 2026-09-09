@@ -60,6 +60,9 @@ func TestMetadataLifecycle(t *testing.T) {
 	if generated.Validation != nil {
 		t.Fatal("generation included validation")
 	}
+	if generated.Generation.Total == nil || generated.Generation.MutationOperatorsUsed == nil || *generated.Generation.Total == 0 || *generated.Generation.MutationOperatorsUsed != *generated.Generation.Total {
+		t.Fatalf("generation results: %+v", generated.Generation)
+	}
 	if err := run([]string{"validate", "--output", "corpus"}, &output); err != nil {
 		t.Fatal(err)
 	}
@@ -70,6 +73,9 @@ func TestMetadataLifecycle(t *testing.T) {
 	}
 	if validated.Validation.Parameters.ProgressInterval != 1000 || validated.Validation.Parameters.Output != "corpus" || validated.Validation.Parameters.MutationCount != nil {
 		t.Fatal("validation parameters incorrect")
+	}
+	if validated.Validation.Total == nil || validated.Validation.Passed == nil || validated.Validation.Partial == nil || validated.Validation.Failed == nil || *validated.Validation.Total != *validated.Validation.Passed || *validated.Validation.Partial != 0 || *validated.Validation.Failed != 0 {
+		t.Fatalf("validation results: %+v", validated.Validation)
 	}
 	for _, phase := range []string{"generation", "validation"} {
 		if !strings.Contains(output.String(), phase+" started at:") || !strings.Contains(output.String(), phase+" finished at:") || !strings.Contains(output.String(), "elapsed:") {
@@ -112,12 +118,12 @@ func TestMetadataRecordsFailuresAndDefaults(t *testing.T) {
 
 func TestMetadataRunningRecord(t *testing.T) {
 	directory := t.TempDir()
-	if err := runPhase("validation", phaseParameters{Output: directory, ProgressInterval: 10}, io.Discard, func() error {
+	if err := runPhase("validation", phaseParameters{Output: directory, ProgressInterval: 10}, io.Discard, func() (phaseResults, error) {
 		record := readMetadata(t, directory).Validation
 		if record.Status != "running" || record.FinishedAt != nil || record.DurationSeconds != nil {
 			t.Fatalf("running record: %+v", record)
 		}
-		return nil
+		return phaseResults{}, nil
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +163,7 @@ func TestMetadataWriteFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	called := false
-	err := runPhase("generation", phaseParameters{Output: directory}, io.Discard, func() error { called = true; return nil })
+	err := runPhase("generation", phaseParameters{Output: directory}, io.Discard, func() (phaseResults, error) { called = true; return phaseResults{}, nil })
 	if err == nil || called {
 		t.Fatalf("operation ran despite initial write failure: %v", err)
 	}
@@ -165,7 +171,7 @@ func TestMetadataWriteFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	original := errors.New("operation failed")
-	err = runPhase("generation", phaseParameters{Output: directory}, io.Discard, func() error {
+	err = runPhase("generation", phaseParameters{Output: directory}, io.Discard, func() (phaseResults, error) {
 		// A directory at the destination forces the final rename to fail on all platforms.
 		if err := os.Remove(path); err != nil {
 			t.Fatal(err)
@@ -173,7 +179,7 @@ func TestMetadataWriteFailures(t *testing.T) {
 		if err := os.Mkdir(path, 0755); err != nil {
 			t.Fatal(err)
 		}
-		return original
+		return phaseResults{}, original
 	})
 	if !errors.Is(err, original) || !strings.Contains(err.Error(), "replace experiment metadata") {
 		t.Fatalf("errors not preserved: %v", err)

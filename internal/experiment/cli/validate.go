@@ -19,7 +19,7 @@ func newValidateCommand() *cobra.Command {
 			if progressInterval <= 0 {
 				return fmt.Errorf("--progress-interval must be greater than zero")
 			}
-			return runPhase("validation", phaseParameters{Output: directory, ProgressInterval: progressInterval}, cmd.OutOrStdout(), func() error {
+			return runPhase("validation", phaseParameters{Output: directory, ProgressInterval: progressInterval}, cmd.OutOrStdout(), func() (phaseResults, error) {
 				return validateDirectory(directory, progressInterval, cmd.OutOrStdout())
 			})
 		},
@@ -29,23 +29,24 @@ func newValidateCommand() *cobra.Command {
 	return command
 }
 
-func validateDirectory(directory string, progressInterval int, stdout io.Writer) error {
+func validateDirectory(directory string, progressInterval int, stdout io.Writer) (phaseResults, error) {
 	total, err := runner.CountScenarios(directory)
 	if err != nil {
-		return err
+		return phaseResults{}, err
 	}
 	reportProgress(stdout, "validation", 0, total, progressInterval)
 	summary, err := runner.RunDirectory(directory, func(completed int) {
 		reportProgress(stdout, "validation", completed, total, progressInterval)
 	})
 	if err != nil {
-		return err
+		return phaseResults{}, err
 	}
 
 	fmt.Fprintf(stdout, "processed %d: %d passed, %d partial, %d failed\n", summary.Total, summary.Passed, summary.Partial, summary.Failed)
+	results := phaseResults{Total: intPointer(summary.Total), Passed: intPointer(summary.Passed), Partial: intPointer(summary.Partial), Failed: intPointer(summary.Failed)}
 	if summary.Partial > 0 || summary.Failed > 0 {
-		return fmt.Errorf("%d scenarios did not produce all expected validation rules", summary.Partial+summary.Failed)
+		return results, fmt.Errorf("%d scenarios did not produce all expected validation rules", summary.Partial+summary.Failed)
 	}
 
-	return nil
+	return results, nil
 }

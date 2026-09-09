@@ -13,21 +13,44 @@ import (
 
 type MutationOperator struct {
 	RuleID validate.RuleID
+	Index  int
 	Apply  func(node *yaml.Node)
 }
 
+type ScenarioMutation struct {
+	Rule          validate.RuleID `json:"rule"`
+	OperatorIndex int             `json:"operatorIndex"`
+}
+
+func (mutation *ScenarioMutation) UnmarshalJSON(data []byte) error {
+	var value struct {
+		Rule          validate.RuleID `json:"rule"`
+		OperatorIndex *int            `json:"operatorIndex"`
+	}
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	if value.OperatorIndex == nil {
+		return fmt.Errorf("operatorIndex is required")
+	}
+	mutation.Rule = value.Rule
+	mutation.OperatorIndex = *value.OperatorIndex
+	return nil
+}
+
 type ScenarioRules struct {
-	Scenario string            `json:"scenario"`
-	Rules    []validate.RuleID `json:"rules"`
+	Scenario  string             `json:"scenario"`
+	Mutations []ScenarioMutation `json:"mutations"`
 }
 
 type Summary struct {
-	Total int
+	Total                 int
+	MutationOperatorsUsed int
 }
 
 type ProgressFunc func(completed, total int)
 
-var operators = [][]MutationOperator{
+var operators = indexOperators([][]MutationOperator{
 	outputDirectoryOperators,
 	networkNameInvalidOperators,
 	organizationDomainDuplicateOperators,
@@ -72,6 +95,24 @@ var operators = [][]MutationOperator{
 	profileNameRequiredOperators,
 	networkNameRequiredOperators,
 	organizationsRequiredOperators,
+})
+
+func indexOperators(groups [][]MutationOperator) [][]MutationOperator {
+	for groupIndex := range groups {
+		for operatorIndex := range groups[groupIndex] {
+			groups[groupIndex][operatorIndex].Index = operatorIndex
+		}
+	}
+	return groups
+}
+
+func FindMutationOperator(mutation ScenarioMutation) (MutationOperator, bool) {
+	for _, group := range operators {
+		if len(group) > 0 && group[0].RuleID == mutation.Rule && mutation.OperatorIndex >= 0 && mutation.OperatorIndex < len(group) {
+			return group[mutation.OperatorIndex], true
+		}
+	}
+	return MutationOperator{}, false
 }
 
 var incompatibilities = IncompatibilityPolicy{
@@ -195,10 +236,10 @@ func Generate(seedYAML []byte, mutationCount int, outputDirectory string, progre
 	err = WalkCombinations(operators, mutationCount, incompatibilities, func(scenario []MutationOperator) error {
 		clone := seed.Clone()
 		doc := clone.Document()
-		rules := make([]validate.RuleID, 0, len(scenario))
+		mutations := make([]ScenarioMutation, 0, len(scenario))
 
 		for _, operator := range scenario {
-			rules = append(rules, operator.RuleID)
+			mutations = append(mutations, ScenarioMutation{Rule: operator.RuleID, OperatorIndex: operator.Index})
 			operator.Apply(doc)
 		}
 
@@ -208,7 +249,7 @@ func Generate(seedYAML []byte, mutationCount int, outputDirectory string, progre
 			return fmt.Errorf("write scenario %s: %w", scenarioName, err)
 		}
 
-		entry, err := json.Marshal(ScenarioRules{Scenario: scenarioName, Rules: rules})
+		entry, err := json.Marshal(ScenarioRules{Scenario: scenarioName, Mutations: mutations})
 
 		if err != nil {
 			return fmt.Errorf("encode scenario %s: %w", scenarioName, err)
@@ -225,6 +266,7 @@ func Generate(seedYAML []byte, mutationCount int, outputDirectory string, progre
 		}
 
 		summary.Total++
+		summary.MutationOperatorsUsed += len(mutations)
 		if progress != nil {
 			progress(summary.Total, total)
 		}

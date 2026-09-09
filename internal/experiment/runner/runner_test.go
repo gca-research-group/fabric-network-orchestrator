@@ -18,9 +18,9 @@ func TestRunChecksEveryScenario(t *testing.T) {
 	}
 
 	scenarios := []generator.ScenarioRules{
-		{Scenario: "000001", Rules: []validate.RuleID{validate.RuleOrganizationsRequired, validate.RuleOrdererTopologyRequired}},
-		{Scenario: "000002", Rules: []validate.RuleID{validate.RuleOrganizationsRequired, validate.RuleApplicationCapabilityUnsupported}},
-		{Scenario: "000003", Rules: []validate.RuleID{validate.RuleChannelNameInvalid}},
+		{Scenario: "000001", Mutations: mutations(validate.RuleOrganizationsRequired, validate.RuleOrdererTopologyRequired)},
+		{Scenario: "000002", Mutations: mutations(validate.RuleOrganizationsRequired, validate.RuleApplicationCapabilityUnsupported)},
+		{Scenario: "000003", Mutations: mutations(validate.RuleChannelNameInvalid)},
 	}
 	writeScenario(t, configDirectory, "000001", "output: output/example\norganizations: []\n")
 	writeScenario(t, configDirectory, "000002", "output: output/example\ncapabilities:\n  channel: V2_0\n  application: V2_5\n  orderer: V2_0\norganizations: []\n")
@@ -57,12 +57,39 @@ func TestRunChecksEveryScenario(t *testing.T) {
 	if err := json.Unmarshal(data, &document); err != nil {
 		t.Fatalf("decode results: %v", err)
 	}
+	var topLevel map[string]json.RawMessage
+	if err := json.Unmarshal(data, &topLevel); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"total", "passed", "partial", "failed"} {
+		if _, found := topLevel[field]; found {
+			t.Fatalf("results.json contains aggregate field %q", field)
+		}
+	}
 	if document.Results[0].Status != StatusPassed || document.Results[1].Status != StatusPartial || document.Results[2].Status != StatusFailed {
 		t.Fatalf("unexpected result states: %+v", document.Results)
 	}
 	if len(document.Results[1].Missing) != 1 || document.Results[1].Missing[0] != validate.RuleApplicationCapabilityUnsupported {
 		t.Fatalf("unexpected missing rules: %+v", document.Results[1].Missing)
 	}
+}
+
+func TestCountScenariosRejectsLegacyRulesManifest(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(directory, "scenarios.json"), []byte(`[{"scenario":"000001","rules":["organizations.required"]}]`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CountScenarios(directory); err == nil {
+		t.Fatal("expected legacy manifest to be rejected")
+	}
+}
+
+func mutations(rules ...validate.RuleID) []generator.ScenarioMutation {
+	result := make([]generator.ScenarioMutation, 0, len(rules))
+	for _, rule := range rules {
+		result = append(result, generator.ScenarioMutation{Rule: rule, OperatorIndex: 0})
+	}
+	return result
 }
 
 func writeScenario(t *testing.T, directory, name, contents string) {

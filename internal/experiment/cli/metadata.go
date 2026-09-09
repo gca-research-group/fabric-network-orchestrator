@@ -18,13 +18,26 @@ type phaseParameters struct {
 }
 
 type phaseMetadata struct {
-	Parameters       phaseParameters `json:"parameters"`
-	WorkingDirectory string          `json:"workingDirectory"`
-	StartedAt        time.Time       `json:"startedAt"`
-	FinishedAt       *time.Time      `json:"finishedAt,omitempty"`
-	DurationSeconds  *float64        `json:"durationSeconds,omitempty"`
-	Status           string          `json:"status"`
-	Error            string          `json:"error,omitempty"`
+	Parameters            phaseParameters `json:"parameters"`
+	WorkingDirectory      string          `json:"workingDirectory"`
+	StartedAt             time.Time       `json:"startedAt"`
+	FinishedAt            *time.Time      `json:"finishedAt,omitempty"`
+	DurationSeconds       *float64        `json:"durationSeconds,omitempty"`
+	Status                string          `json:"status"`
+	Error                 string          `json:"error,omitempty"`
+	Total                 *int            `json:"total,omitempty"`
+	MutationOperatorsUsed *int            `json:"mutationOperatorsUsed,omitempty"`
+	Passed                *int            `json:"passed,omitempty"`
+	Partial               *int            `json:"partial,omitempty"`
+	Failed                *int            `json:"failed,omitempty"`
+}
+
+type phaseResults struct {
+	Total                 *int
+	MutationOperatorsUsed *int
+	Passed                *int
+	Partial               *int
+	Failed                *int
 }
 
 type experimentMetadata struct {
@@ -32,7 +45,7 @@ type experimentMetadata struct {
 	Validation *phaseMetadata `json:"validation,omitempty"`
 }
 
-func runPhase(phase string, parameters phaseParameters, stdout io.Writer, operation func() error) error {
+func runPhase(phase string, parameters phaseParameters, stdout io.Writer, operation func() (phaseResults, error)) error {
 	started := time.Now()
 	fmt.Fprintf(stdout, "%s started at: %s\n", phase, started.UTC().Format(time.RFC3339Nano))
 	metadata := experimentMetadata{}
@@ -65,7 +78,12 @@ func runPhase(phase string, parameters phaseParameters, stdout io.Writer, operat
 	if err := writeMetadata(path, metadata); err != nil {
 		return finishPhaseOutput(phase, started, stdout, err)
 	}
-	operationErr := operation()
+	results, operationErr := operation()
+	record.Total = results.Total
+	record.MutationOperatorsUsed = results.MutationOperatorsUsed
+	record.Passed = results.Passed
+	record.Partial = results.Partial
+	record.Failed = results.Failed
 	finished := time.Now()
 	finishedUTC := finished.UTC()
 	duration := finished.Sub(started).Seconds()

@@ -116,12 +116,18 @@ func TestSeparateWorkflow(t *testing.T) {
 			t.Fatalf("validation modified %s", path)
 		}
 	}
-	var summary runner.Summary
-	if err := json.Unmarshal(readFile(t, resultsPath), &summary); err != nil {
+	var resultsDocument struct {
+		Results []runner.Result `json:"results"`
+	}
+	if err := json.Unmarshal(readFile(t, resultsPath), &resultsDocument); err != nil {
 		t.Fatal(err)
 	}
-	if summary.Total == 0 || summary.Passed != summary.Total {
-		t.Fatalf("summary: %+v", summary)
+	metadata := readMetadata(t, directory)
+	if metadata.Validation.Total == nil || metadata.Validation.Passed == nil || *metadata.Validation.Total == 0 || *metadata.Validation.Passed != *metadata.Validation.Total {
+		t.Fatalf("validation metadata: %+v", metadata.Validation)
+	}
+	if len(resultsDocument.Results) != *metadata.Validation.Total {
+		t.Fatalf("results: %d, total: %d", len(resultsDocument.Results), *metadata.Validation.Total)
 	}
 	if !strings.Contains(output.String(), "(100.0%)") {
 		t.Fatal("missing final progress")
@@ -153,7 +159,7 @@ func TestValidationUnsuccessfulScenarios(t *testing.T) {
 			if status == "partial" {
 				rules = append(rules, validate.RuleOrganizationsRequired)
 			}
-			manifest, err := json.Marshal([]generator.ScenarioRules{{Scenario: "000001", Rules: rules}})
+			manifest, err := json.Marshal([]generator.ScenarioRules{{Scenario: "000001", Mutations: scenarioMutations(rules...)}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -180,8 +186,26 @@ func TestValidationUnsuccessfulScenarios(t *testing.T) {
 			if len(document.Results) != 1 || document.Results[0].Status != want {
 				t.Fatalf("results: %+v", document)
 			}
+			metadata := readMetadata(t, directory)
+			if metadata.Validation.Total == nil || metadata.Validation.Passed == nil || metadata.Validation.Partial == nil || metadata.Validation.Failed == nil || *metadata.Validation.Total != 1 {
+				t.Fatalf("validation metadata: %+v", metadata.Validation)
+			}
+			if status == "partial" && (*metadata.Validation.Partial != 1 || *metadata.Validation.Failed != 0) {
+				t.Fatalf("partial validation metadata: %+v", metadata.Validation)
+			}
+			if status != "partial" && (*metadata.Validation.Failed != 1 || *metadata.Validation.Partial != 0) {
+				t.Fatalf("failed validation metadata: %+v", metadata.Validation)
+			}
 		})
 	}
+}
+
+func scenarioMutations(rules ...validate.RuleID) []generator.ScenarioMutation {
+	result := make([]generator.ScenarioMutation, 0, len(rules))
+	for _, rule := range rules {
+		result = append(result, generator.ScenarioMutation{Rule: rule, OperatorIndex: 0})
+	}
+	return result
 }
 
 func readFile(t *testing.T, path string) []byte {

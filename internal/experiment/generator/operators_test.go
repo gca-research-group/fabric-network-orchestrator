@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -315,6 +316,13 @@ func TestGenerateStreamsValidManifest(t *testing.T) {
 	}
 	foundCustomSeed := false
 	for _, scenario := range scenarios {
+		if len(scenario.Mutations) != 1 {
+			t.Fatalf("scenario %s has %d mutations", scenario.Scenario, len(scenario.Mutations))
+		}
+		operator, found := FindMutationOperator(scenario.Mutations[0])
+		if !found || operator.RuleID != scenario.Mutations[0].Rule || operator.Index != scenario.Mutations[0].OperatorIndex {
+			t.Fatalf("scenario %s has an invalid operator reference: %+v", scenario.Scenario, scenario.Mutations[0])
+		}
 		path := filepath.Join(outputDirectory, "config", scenario.Scenario+".yaml")
 		generated, err := os.ReadFile(path)
 		if err != nil {
@@ -326,6 +334,27 @@ func TestGenerateStreamsValidManifest(t *testing.T) {
 	}
 	if !foundCustomSeed {
 		t.Fatal("generated configurations do not use the supplied seed YAML")
+	}
+	if summary.MutationOperatorsUsed != summary.Total {
+		t.Fatalf("used %d mutation operators for %d one-mutation scenarios", summary.MutationOperatorsUsed, summary.Total)
+	}
+}
+
+func TestMutationReferenceReproducesMutation(t *testing.T) {
+	for _, group := range operators {
+		for _, want := range group {
+			reference := ScenarioMutation{Rule: want.RuleID, OperatorIndex: want.Index}
+			got, found := FindMutationOperator(reference)
+			if !found {
+				t.Fatalf("operator reference was not resolved: %+v", reference)
+			}
+			wantNode, gotNode := seedNode(t), seedNode(t)
+			want.Apply(wantNode.Document())
+			got.Apply(gotNode.Document())
+			if !reflect.DeepEqual(decodeConfig(t, gotNode), decodeConfig(t, wantNode)) {
+				t.Fatalf("operator reference %+v produced a different mutation", reference)
+			}
+		}
 	}
 }
 
@@ -341,6 +370,16 @@ func TestGenerateFromDocumentedSample(t *testing.T) {
 	}
 	if summary.Total == 0 {
 		t.Fatal("expected scenarios from documented sample seed")
+	}
+}
+
+func TestGenerateCountsEveryAppliedMutationOperator(t *testing.T) {
+	summary, err := Generate([]byte(testSeedYAML), 2, t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Total == 0 || summary.MutationOperatorsUsed != summary.Total*2 {
+		t.Fatalf("unexpected generation summary: %+v", summary)
 	}
 }
 

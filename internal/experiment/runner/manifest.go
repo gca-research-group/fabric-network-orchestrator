@@ -33,6 +33,9 @@ func CountScenarios(directory string) (int, error) {
 		if err := decoder.Decode(&scenario); err != nil {
 			return 0, fmt.Errorf("decode scenario manifest entry: %w", err)
 		}
+		if err := validateScenario(scenario); err != nil {
+			return 0, fmt.Errorf("decode scenario manifest entry: %w", err)
+		}
 		total++
 	}
 	if _, err := decoder.Token(); err != nil {

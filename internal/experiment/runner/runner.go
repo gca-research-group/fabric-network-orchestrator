@@ -71,6 +71,10 @@ func RunDirectory(outputDirectory string, progress ProgressFunc) (Summary, error
 			resultsFile.Close()
 			return summary, fmt.Errorf("decode scenario manifest entry: %w", err)
 		}
+		if err := validateScenario(scenario); err != nil {
+			resultsFile.Close()
+			return summary, fmt.Errorf("decode scenario manifest entry: %w", err)
+		}
 
 		result := evaluate(outputDirectory, scenario)
 		data, err := json.Marshal(result)
@@ -107,7 +111,7 @@ func RunDirectory(outputDirectory string, progress ProgressFunc) (Summary, error
 		return summary, fmt.Errorf("decode scenario manifest: %w", err)
 	}
 
-	footer := fmt.Sprintf("\n  ],\n  \"total\": %d,\n  \"passed\": %d,\n  \"partial\": %d,\n  \"failed\": %d\n}\n", summary.Total, summary.Passed, summary.Partial, summary.Failed)
+	footer := "\n  ]\n}\n"
 	if _, err := writer.WriteString(footer); err != nil {
 		resultsFile.Close()
 		return summary, fmt.Errorf("write result document: %w", err)
@@ -124,7 +128,8 @@ func RunDirectory(outputDirectory string, progress ProgressFunc) (Summary, error
 }
 
 func evaluate(outputDirectory string, scenario generator.ScenarioRules) Result {
-	result := Result{Scenario: scenario.Scenario, Expected: scenario.Rules}
+	expected := expectedRules(scenario)
+	result := Result{Scenario: scenario.Scenario, Expected: expected}
 	path := filepath.Join(outputDirectory, "config", scenario.Scenario+".yaml")
 	_, err := config.LoadConfigFromPath(path)
 
@@ -133,18 +138,47 @@ func evaluate(outputDirectory string, scenario generator.ScenarioRules) Result {
 		for _, validationError := range validationErrors {
 			result.Actual = appendRuleOnce(result.Actual, validationError.RuleID)
 		}
-		result.Missing = missingRules(result.Actual, scenario.Rules)
-		result.Status = classify(len(scenario.Rules), len(result.Missing))
+		result.Missing = missingRules(result.Actual, expected)
+		result.Status = classify(len(expected), len(result.Missing))
 	} else if err == nil {
 		result.Status = StatusFailed
-		result.Missing = append(result.Missing, scenario.Rules...)
+		result.Missing = append(result.Missing, expected...)
 		result.Error = "configuration unexpectedly passed validation"
 	} else {
 		result.Status = StatusFailed
-		result.Missing = append(result.Missing, scenario.Rules...)
+		result.Missing = append(result.Missing, expected...)
 		result.Error = err.Error()
 	}
 	return result
+}
+
+func expectedRules(scenario generator.ScenarioRules) []validate.RuleID {
+	rules := make([]validate.RuleID, 0, len(scenario.Mutations))
+	for _, mutation := range scenario.Mutations {
+		rules = append(rules, mutation.Rule)
+	}
+	return rules
+}
+
+func validateScenario(scenario generator.ScenarioRules) error {
+	if scenario.Scenario == "" {
+		return fmt.Errorf("scenario is required")
+	}
+	if len(scenario.Mutations) == 0 {
+		return fmt.Errorf("scenario %s: mutations are required", scenario.Scenario)
+	}
+	for _, mutation := range scenario.Mutations {
+		if mutation.Rule == "" {
+			return fmt.Errorf("scenario %s: mutation rule is required", scenario.Scenario)
+		}
+		if mutation.OperatorIndex < 0 {
+			return fmt.Errorf("scenario %s: mutation operator index must not be negative", scenario.Scenario)
+		}
+		if _, found := generator.FindMutationOperator(mutation); !found {
+			return fmt.Errorf("scenario %s: unknown mutation operator %s/%d", scenario.Scenario, mutation.Rule, mutation.OperatorIndex)
+		}
+	}
+	return nil
 }
 
 func missingRules(actual, expected []validate.RuleID) []validate.RuleID {
