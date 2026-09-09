@@ -24,7 +24,7 @@ func newValidateCommand() *cobra.Command {
 			})
 		},
 	}
-	command.Flags().StringVar(&directory, "output", "output", "Directory containing scenarios.json and config; receives results.json")
+	command.Flags().StringVar(&directory, "output", "output", "Directory containing scenarios.parquet and config; receives results.parquet")
 	command.Flags().IntVar(&progressInterval, "progress-interval", defaultProgressInterval, "Report progress every N scenarios (must be greater than zero; start and completion are always reported)")
 	return command
 }

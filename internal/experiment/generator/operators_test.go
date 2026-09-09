@@ -1,7 +1,6 @@
 package generator
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -9,6 +8,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/parquet-go/parquet-go"
+	"github.com/parquet-go/parquet-go/format"
 
 	"github.com/gca-research-group/fabric-network-orchestrator/internal/experiment/seed"
 
@@ -295,17 +297,14 @@ func TestGenerateStreamsValidManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(outputDirectory, "scenarios.json"))
+	scenarios, err := parquet.ReadFile[ScenarioRules](filepath.Join(outputDirectory, "scenarios.parquet"))
 	if err != nil {
-		t.Fatal(err)
-	}
-	var scenarios []ScenarioRules
-	if err := json.Unmarshal(data, &scenarios); err != nil {
 		t.Fatalf("decode generated manifest: %v", err)
 	}
 	if summary.Total != len(scenarios) || summary.Total == 0 {
 		t.Fatalf("summary total %d does not match manifest length %d", summary.Total, len(scenarios))
 	}
+	assertZstdParquet(t, filepath.Join(outputDirectory, "scenarios.parquet"))
 	if progressTotal != summary.Total || len(progress) != summary.Total+1 {
 		t.Fatalf("progress reported %d updates with total %d for %d scenarios", len(progress), progressTotal, summary.Total)
 	}
@@ -337,6 +336,30 @@ func TestGenerateStreamsValidManifest(t *testing.T) {
 	}
 	if summary.MutationOperatorsUsed != summary.Total {
 		t.Fatalf("used %d mutation operators for %d one-mutation scenarios", summary.MutationOperatorsUsed, summary.Total)
+	}
+}
+
+func assertZstdParquet(t *testing.T, path string) {
+	t.Helper()
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err := parquet.OpenFile(file, info.Size())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, group := range document.Metadata().RowGroups {
+		for _, column := range group.Columns {
+			if column.MetaData.Codec != format.Zstd {
+				t.Fatalf("column %v uses %s compression", column.MetaData.PathInSchema, column.MetaData.Codec)
+			}
+		}
 	}
 }
 
@@ -374,11 +397,15 @@ func TestGenerateFromDocumentedSample(t *testing.T) {
 }
 
 func TestGenerateCountsEveryAppliedMutationOperator(t *testing.T) {
+	originalOperators := operators
+	operators = indexOperators([][]MutationOperator{{networkNameInvalidOperators[0]}, {organizationsRequiredOperators[0]}})
+	defer func() { operators = originalOperators }()
+
 	summary, err := Generate([]byte(testSeedYAML), 2, t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if summary.Total == 0 || summary.MutationOperatorsUsed != summary.Total*2 {
+	if summary.Total != 1 || summary.MutationOperatorsUsed != 2 {
 		t.Fatalf("unexpected generation summary: %+v", summary)
 	}
 }

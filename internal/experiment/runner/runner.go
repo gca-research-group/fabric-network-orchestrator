@@ -1,11 +1,14 @@
 package runner
 
 import (
-	"bufio"
-	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/parquet-go/parquet-go"
+	"github.com/parquet-go/parquet-go/compress/zstd"
 
 	"github.com/gca-research-group/fabric-network-orchestrator/internal/config"
 	"github.com/gca-research-group/fabric-network-orchestrator/internal/experiment/generator"
@@ -21,12 +24,29 @@ const (
 )
 
 type Result struct {
-	Scenario string            `json:"scenario"`
-	Expected []validate.RuleID `json:"expectedRules"`
-	Actual   []validate.RuleID `json:"actualRules,omitempty"`
-	Missing  []validate.RuleID `json:"missingRules,omitempty"`
-	Status   Status            `json:"status"`
-	Error    string            `json:"error,omitempty"`
+	Scenario string
+	Expected []validate.RuleID
+	Actual   []validate.RuleID
+	Missing  []validate.RuleID
+	Status   Status
+	Error    string
+}
+
+type resultRow struct {
+	Scenario string            `parquet:"scenario,dict"`
+	Expected []validate.RuleID `parquet:"expectedRules,list"`
+	Actual   []validate.RuleID `parquet:"actualRules,list"`
+	Missing  []validate.RuleID `parquet:"missingRules,list"`
+	Status   Status            `parquet:"status,dict"`
+	Error    *string           `parquet:"error,optional"`
+}
+
+func parquetResult(result Result) resultRow {
+	row := resultRow{Scenario: result.Scenario, Expected: result.Expected, Actual: result.Actual, Missing: result.Missing, Status: result.Status}
+	if result.Error != "" {
+		row.Error = &result.Error
+	}
+	return row
 }
 
 type Summary struct {
@@ -39,89 +59,64 @@ type Summary struct {
 type ProgressFunc func(completed int)
 
 func RunDirectory(outputDirectory string, progress ProgressFunc) (Summary, error) {
-	manifest, err := os.Open(filepath.Join(outputDirectory, "scenarios.json"))
+	manifest, err := openScenarioManifest(outputDirectory)
 	if err != nil {
-		return Summary{}, fmt.Errorf("open scenario manifest: %w", err)
+		return Summary{}, err
 	}
 	defer manifest.Close()
 
-	decoder := json.NewDecoder(bufio.NewReader(manifest))
-	token, err := decoder.Token()
-	if err != nil {
-		return Summary{}, fmt.Errorf("decode scenario manifest: %w", err)
-	}
-	if delimiter, ok := token.(json.Delim); !ok || delimiter != '[' {
-		return Summary{}, fmt.Errorf("decode scenario manifest: expected JSON array")
-	}
+	reader := parquet.NewGenericReader[generator.ScenarioRules](manifest)
+	defer reader.Close()
 
-	resultsFile, err := os.Create(filepath.Join(outputDirectory, "results.json"))
+	resultsFile, err := os.CreateTemp(outputDirectory, ".results-*.parquet")
 	if err != nil {
 		return Summary{}, fmt.Errorf("create result document: %w", err)
 	}
-	writer := bufio.NewWriter(resultsFile)
-	if _, err := writer.WriteString("{\n  \"results\": [\n"); err != nil {
-		resultsFile.Close()
-		return Summary{}, fmt.Errorf("write result document: %w", err)
-	}
+	defer os.Remove(resultsFile.Name())
+	writer := parquet.NewGenericWriter[resultRow](resultsFile,
+		parquet.Compression(&zstd.Codec{}),
+		parquet.MaxRowsPerRowGroup(64*1024),
+	)
 
 	summary := Summary{}
-	for decoder.More() {
-		var scenario generator.ScenarioRules
-		if err := decoder.Decode(&scenario); err != nil {
-			resultsFile.Close()
-			return summary, fmt.Errorf("decode scenario manifest entry: %w", err)
-		}
-		if err := validateScenario(scenario); err != nil {
-			resultsFile.Close()
-			return summary, fmt.Errorf("decode scenario manifest entry: %w", err)
-		}
+	rows := make([]generator.ScenarioRules, 1024)
+	for {
+		n, readErr := reader.Read(rows)
+		for _, scenario := range rows[:n] {
+			if err := validateScenario(scenario); err != nil {
+				return summary, errors.Join(fmt.Errorf("decode scenario manifest entry: %w", err), writer.Close(), resultsFile.Close())
+			}
 
-		result := evaluate(outputDirectory, scenario)
-		data, err := json.Marshal(result)
-		if err != nil {
-			resultsFile.Close()
-			return summary, fmt.Errorf("encode result for scenario %s: %w", scenario.Scenario, err)
-		}
-		if summary.Total > 0 {
-			if _, err := writer.WriteString(",\n"); err != nil {
-				resultsFile.Close()
-				return summary, fmt.Errorf("write result document: %w", err)
+			result := evaluate(outputDirectory, scenario)
+			if _, err := writer.Write([]resultRow{parquetResult(result)}); err != nil {
+				return summary, errors.Join(fmt.Errorf("write result document: %w", err), writer.Close(), resultsFile.Close())
+			}
+
+			summary.Total++
+			switch result.Status {
+			case StatusPassed:
+				summary.Passed++
+			case StatusPartial:
+				summary.Partial++
+			case StatusFailed:
+				summary.Failed++
+			}
+			if progress != nil {
+				progress(summary.Total)
 			}
 		}
-		if _, err := writer.WriteString("    " + string(data)); err != nil {
-			resultsFile.Close()
-			return summary, fmt.Errorf("write result document: %w", err)
+		if errors.Is(readErr, io.EOF) {
+			break
 		}
-
-		summary.Total++
-		switch result.Status {
-		case StatusPassed:
-			summary.Passed++
-		case StatusPartial:
-			summary.Partial++
-		case StatusFailed:
-			summary.Failed++
-		}
-		if progress != nil {
-			progress(summary.Total)
+		if readErr != nil {
+			return summary, errors.Join(fmt.Errorf("decode scenario manifest entry: %w", readErr), writer.Close(), resultsFile.Close())
 		}
 	}
-	if _, err := decoder.Token(); err != nil {
-		resultsFile.Close()
-		return summary, fmt.Errorf("decode scenario manifest: %w", err)
-	}
-
-	footer := "\n  ]\n}\n"
-	if _, err := writer.WriteString(footer); err != nil {
-		resultsFile.Close()
-		return summary, fmt.Errorf("write result document: %w", err)
-	}
-	if err := writer.Flush(); err != nil {
-		resultsFile.Close()
-		return summary, fmt.Errorf("flush result document: %w", err)
-	}
-	if err := resultsFile.Close(); err != nil {
+	if err := errors.Join(writer.Close(), resultsFile.Close()); err != nil {
 		return summary, fmt.Errorf("close result document: %w", err)
+	}
+	if err := os.Rename(resultsFile.Name(), filepath.Join(outputDirectory, "results.parquet")); err != nil {
+		return summary, fmt.Errorf("replace result document: %w", err)
 	}
 
 	return summary, nil

@@ -103,7 +103,7 @@ func TestMetadataRecordsFailuresAndDefaults(t *testing.T) {
 	}
 	for _, manifest := range []string{"[", `[{"scenario":"missing","rules":["unknown"]}]`} {
 		directory := t.TempDir()
-		writeFile(t, filepath.Join(directory, "scenarios.json"), []byte(manifest))
+		writeFile(t, filepath.Join(directory, "scenarios.parquet"), []byte(manifest))
 		err := run([]string{"validate", "--output", directory}, io.Discard)
 		if err == nil {
 			t.Fatal("expected validation error")

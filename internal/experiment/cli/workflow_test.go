@@ -2,11 +2,12 @@ package cli
 
 import (
 	"bytes"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/parquet-go/parquet-go"
 
 	"github.com/gca-research-group/fabric-network-orchestrator/internal/config"
 	"github.com/gca-research-group/fabric-network-orchestrator/internal/experiment/generator"
@@ -72,7 +73,7 @@ func TestSeparateWorkflow(t *testing.T) {
 	if err := run(args, &output); err != nil {
 		t.Fatal(err)
 	}
-	resultsPath := filepath.Join(directory, "results.json")
+	resultsPath := filepath.Join(directory, "results.parquet")
 	if _, err := os.Stat(resultsPath); !os.IsNotExist(err) {
 		t.Fatalf("generation wrote results: %v", err)
 	}
@@ -116,18 +117,13 @@ func TestSeparateWorkflow(t *testing.T) {
 			t.Fatalf("validation modified %s", path)
 		}
 	}
-	var resultsDocument struct {
-		Results []runner.Result `json:"results"`
-	}
-	if err := json.Unmarshal(readFile(t, resultsPath), &resultsDocument); err != nil {
-		t.Fatal(err)
-	}
+	results := readResults(t, resultsPath)
 	metadata := readMetadata(t, directory)
 	if metadata.Validation.Total == nil || metadata.Validation.Passed == nil || *metadata.Validation.Total == 0 || *metadata.Validation.Passed != *metadata.Validation.Total {
 		t.Fatalf("validation metadata: %+v", metadata.Validation)
 	}
-	if len(resultsDocument.Results) != *metadata.Validation.Total {
-		t.Fatalf("results: %d, total: %d", len(resultsDocument.Results), *metadata.Validation.Total)
+	if len(results) != *metadata.Validation.Total {
+		t.Fatalf("results: %d, total: %d", len(results), *metadata.Validation.Total)
 	}
 	if !strings.Contains(output.String(), "(100.0%)") {
 		t.Fatal("missing final progress")
@@ -139,15 +135,30 @@ func TestValidationErrors(t *testing.T) {
 		t.Run(manifest, func(t *testing.T) {
 			directory := t.TempDir()
 			if manifest != "" {
-				writeFile(t, filepath.Join(directory, "scenarios.json"), []byte(manifest))
+				writeFile(t, filepath.Join(directory, "scenarios.parquet"), []byte(manifest))
 			}
 			if err := run([]string{"validate", "--output", directory}, &strings.Builder{}); err == nil {
 				t.Fatal("expected manifest error")
 			}
-			if _, err := os.Stat(filepath.Join(directory, "results.json")); !os.IsNotExist(err) {
+			if _, err := os.Stat(filepath.Join(directory, "results.parquet")); !os.IsNotExist(err) {
 				t.Fatal("invalid manifest wrote results")
 			}
 		})
+	}
+}
+
+func TestInvalidManifestPreservesExistingResults(t *testing.T) {
+	directory := t.TempDir()
+	resultsPath := filepath.Join(directory, "results.parquet")
+	existing := []byte("existing results")
+	writeFile(t, resultsPath, existing)
+	writeFile(t, filepath.Join(directory, "scenarios.parquet"), []byte("invalid parquet"))
+
+	if err := run([]string{"validate", "--output", directory}, &strings.Builder{}); err == nil {
+		t.Fatal("expected manifest error")
+	}
+	if got := readFile(t, resultsPath); !bytes.Equal(got, existing) {
+		t.Fatal("invalid manifest replaced existing results")
 	}
 }
 
@@ -159,11 +170,7 @@ func TestValidationUnsuccessfulScenarios(t *testing.T) {
 			if status == "partial" {
 				rules = append(rules, validate.RuleOrganizationsRequired)
 			}
-			manifest, err := json.Marshal([]generator.ScenarioRules{{Scenario: "000001", Mutations: scenarioMutations(rules...)}})
-			if err != nil {
-				t.Fatal(err)
-			}
-			writeFile(t, filepath.Join(directory, "scenarios.json"), manifest)
+			writeScenarioManifest(t, directory, []generator.ScenarioRules{{Scenario: "000001", Mutations: scenarioMutations(rules...)}})
 			if status != "missing" {
 				if err := os.Mkdir(filepath.Join(directory, "config"), 0755); err != nil {
 					t.Fatal(err)
@@ -173,18 +180,13 @@ func TestValidationUnsuccessfulScenarios(t *testing.T) {
 			if err := run([]string{"validate", "--output", directory}, &strings.Builder{}); err == nil || !strings.Contains(err.Error(), "expected validation rules") {
 				t.Fatalf("expected failed verification: %v", err)
 			}
-			var document struct {
-				Results []runner.Result `json:"results"`
-			}
-			if err := json.Unmarshal(readFile(t, filepath.Join(directory, "results.json")), &document); err != nil {
-				t.Fatal(err)
-			}
+			results := readResults(t, filepath.Join(directory, "results.parquet"))
 			want := runner.StatusFailed
 			if status == "partial" {
 				want = runner.StatusPartial
 			}
-			if len(document.Results) != 1 || document.Results[0].Status != want {
-				t.Fatalf("results: %+v", document)
+			if len(results) != 1 || results[0].Status != want {
+				t.Fatalf("results: %+v", results)
 			}
 			metadata := readMetadata(t, directory)
 			if metadata.Validation.Total == nil || metadata.Validation.Passed == nil || metadata.Validation.Partial == nil || metadata.Validation.Failed == nil || *metadata.Validation.Total != 1 {
@@ -206,6 +208,31 @@ func scenarioMutations(rules ...validate.RuleID) []generator.ScenarioMutation {
 		result = append(result, generator.ScenarioMutation{Rule: rule, OperatorIndex: 0})
 	}
 	return result
+}
+
+type parquetResult struct {
+	Scenario string            `parquet:"scenario"`
+	Expected []validate.RuleID `parquet:"expectedRules,list"`
+	Actual   []validate.RuleID `parquet:"actualRules,list"`
+	Missing  []validate.RuleID `parquet:"missingRules,list"`
+	Status   runner.Status     `parquet:"status"`
+	Error    *string           `parquet:"error,optional"`
+}
+
+func writeScenarioManifest(t *testing.T, directory string, scenarios []generator.ScenarioRules) {
+	t.Helper()
+	if err := parquet.WriteFile(filepath.Join(directory, "scenarios.parquet"), scenarios); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readResults(t *testing.T, path string) []parquetResult {
+	t.Helper()
+	rows, err := parquet.ReadFile[parquetResult](path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rows
 }
 
 func readFile(t *testing.T, path string) []byte {

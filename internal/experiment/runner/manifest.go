@@ -1,51 +1,70 @@
 package runner
 
 import (
-	"bufio"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 
+	"github.com/parquet-go/parquet-go"
+
 	"github.com/gca-research-group/fabric-network-orchestrator/internal/experiment/generator"
 )
 
-// CountScenarios reads the manifest incrementally without loading the corpus.
-// It checks the complete JSON document before validation creates results.json.
+// CountScenarios reads and validates the manifest incrementally without loading the corpus.
+// It checks the complete Parquet document before validation creates results.parquet.
 func CountScenarios(directory string) (int, error) {
-	file, err := os.Open(filepath.Join(directory, "scenarios.json"))
+	file, err := openScenarioManifest(directory)
 	if err != nil {
-		return 0, fmt.Errorf("open scenario manifest: %w", err)
+		return 0, err
 	}
 	defer file.Close()
-	decoder := json.NewDecoder(bufio.NewReader(file))
-	token, err := decoder.Token()
-	if err != nil {
-		return 0, fmt.Errorf("decode scenario manifest: %w", err)
-	}
-	if token != json.Delim('[') {
-		return 0, fmt.Errorf("decode scenario manifest: expected JSON array")
-	}
+	reader := parquet.NewGenericReader[generator.ScenarioRules](file)
+	defer reader.Close()
 	total := 0
-	for decoder.More() {
-		var scenario generator.ScenarioRules
-		if err := decoder.Decode(&scenario); err != nil {
+	rows := make([]generator.ScenarioRules, 1024)
+	for {
+		n, err := reader.Read(rows)
+		for _, scenario := range rows[:n] {
+			if err := validateScenario(scenario); err != nil {
+				return 0, fmt.Errorf("decode scenario manifest entry: %w", err)
+			}
+			total++
+		}
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
 			return 0, fmt.Errorf("decode scenario manifest entry: %w", err)
 		}
-		if err := validateScenario(scenario); err != nil {
-			return 0, fmt.Errorf("decode scenario manifest entry: %w", err)
-		}
-		total++
 	}
-	if _, err := decoder.Token(); err != nil {
-		return 0, fmt.Errorf("decode scenario manifest: %w", err)
-	}
-	if _, err := decoder.Token(); err != io.EOF {
-		if err == nil {
-			return 0, fmt.Errorf("decode scenario manifest: unexpected trailing data")
-		}
-		return 0, fmt.Errorf("decode scenario manifest: %w", err)
+	if total == 0 {
+		return 0, fmt.Errorf("decode scenario manifest: no scenarios")
 	}
 	return total, nil
+}
+
+func openScenarioManifest(directory string) (*os.File, error) {
+	path := filepath.Join(directory, "scenarios.parquet")
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open scenario manifest: %w", err)
+	}
+	info, err := file.Stat()
+	if err != nil {
+		file.Close()
+		return nil, fmt.Errorf("inspect scenario manifest: %w", err)
+	}
+	parquetFile, err := parquet.OpenFile(file, info.Size())
+	if err != nil {
+		file.Close()
+		return nil, fmt.Errorf("decode scenario manifest: %w", err)
+	}
+	want := parquet.SchemaOf(new(generator.ScenarioRules)).String()
+	if got := parquetFile.Schema().String(); got != want {
+		file.Close()
+		return nil, fmt.Errorf("decode scenario manifest: incompatible schema: got %s, want %s", got, want)
+	}
+	return file, nil
 }

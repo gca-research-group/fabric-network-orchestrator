@@ -1,10 +1,12 @@
 package runner
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/parquet-go/parquet-go"
+	"github.com/parquet-go/parquet-go/format"
 
 	"github.com/gca-research-group/fabric-network-orchestrator/internal/experiment/generator"
 	"github.com/gca-research-group/fabric-network-orchestrator/internal/validate"
@@ -25,11 +27,7 @@ func TestRunChecksEveryScenario(t *testing.T) {
 	writeScenario(t, configDirectory, "000001", "output: output/example\norganizations: []\n")
 	writeScenario(t, configDirectory, "000002", "output: output/example\ncapabilities:\n  channel: V2_0\n  application: V2_5\n  orderer: V2_0\norganizations: []\n")
 	writeScenario(t, configDirectory, "000003", "output: output/example\norganizations: []\n")
-	manifest, err := json.Marshal(scenarios)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(outputDirectory, "scenarios.json"), manifest, 0644); err != nil {
+	if err := parquet.WriteFile(filepath.Join(outputDirectory, "scenarios.parquet"), scenarios); err != nil {
 		t.Fatal(err)
 	}
 
@@ -46,41 +44,75 @@ func TestRunChecksEveryScenario(t *testing.T) {
 	if len(progress) != 3 || progress[0] != 1 || progress[1] != 2 || progress[2] != 3 {
 		t.Fatalf("unexpected progress updates: %v", progress)
 	}
-	data, err := os.ReadFile(filepath.Join(outputDirectory, "results.json"))
+	rows, err := parquet.ReadFile[resultRow](filepath.Join(outputDirectory, "results.parquet"))
 	if err != nil {
-		t.Fatalf("results file was not written: %v", err)
-	}
-	var document struct {
-		Summary
-		Results []Result `json:"results"`
-	}
-	if err := json.Unmarshal(data, &document); err != nil {
 		t.Fatalf("decode results: %v", err)
 	}
-	var topLevel map[string]json.RawMessage
-	if err := json.Unmarshal(data, &topLevel); err != nil {
-		t.Fatal(err)
+	if rows[0].Status != StatusPassed || rows[1].Status != StatusPartial || rows[2].Status != StatusFailed {
+		t.Fatalf("unexpected result states: %+v", rows)
 	}
-	for _, field := range []string{"total", "passed", "partial", "failed"} {
-		if _, found := topLevel[field]; found {
-			t.Fatalf("results.json contains aggregate field %q", field)
-		}
+	if len(rows[1].Missing) != 1 || rows[1].Missing[0] != validate.RuleApplicationCapabilityUnsupported {
+		t.Fatalf("unexpected missing rules: %+v", rows[1].Missing)
 	}
-	if document.Results[0].Status != StatusPassed || document.Results[1].Status != StatusPartial || document.Results[2].Status != StatusFailed {
-		t.Fatalf("unexpected result states: %+v", document.Results)
-	}
-	if len(document.Results[1].Missing) != 1 || document.Results[1].Missing[0] != validate.RuleApplicationCapabilityUnsupported {
-		t.Fatalf("unexpected missing rules: %+v", document.Results[1].Missing)
-	}
+	assertZstdResults(t, filepath.Join(outputDirectory, "results.parquet"))
 }
 
-func TestCountScenariosRejectsLegacyRulesManifest(t *testing.T) {
+func TestCountScenariosIgnoresLegacyJSONManifest(t *testing.T) {
 	directory := t.TempDir()
 	if err := os.WriteFile(filepath.Join(directory, "scenarios.json"), []byte(`[{"scenario":"000001","rules":["organizations.required"]}]`), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := CountScenarios(directory); err == nil {
 		t.Fatal("expected legacy manifest to be rejected")
+	}
+}
+
+func TestCountScenariosRejectsEmptyAndIncompatibleParquet(t *testing.T) {
+	for name, rows := range map[string]any{
+		"empty":        []generator.ScenarioRules{},
+		"incompatible": []struct{ Other string }{{Other: "value"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			directory := t.TempDir()
+			path := filepath.Join(directory, "scenarios.parquet")
+			var err error
+			switch value := rows.(type) {
+			case []generator.ScenarioRules:
+				err = parquet.WriteFile(path, value)
+			case []struct{ Other string }:
+				err = parquet.WriteFile(path, value)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := CountScenarios(directory); err == nil {
+				t.Fatal("expected manifest to be rejected")
+			}
+		})
+	}
+}
+
+func assertZstdResults(t *testing.T, path string) {
+	t.Helper()
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err := parquet.OpenFile(file, info.Size())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, group := range document.Metadata().RowGroups {
+		for _, column := range group.Columns {
+			if column.MetaData.Codec != format.Zstd {
+				t.Fatalf("column %v uses %s compression", column.MetaData.PathInSchema, column.MetaData.Codec)
+			}
+		}
 	}
 }
 

@@ -1,11 +1,13 @@
 package generator
 
 import (
-	"bufio"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/parquet-go/parquet-go"
+	"github.com/parquet-go/parquet-go/compress/zstd"
 
 	"github.com/gca-research-group/fabric-network-orchestrator/internal/validate"
 	"github.com/gca-research-group/fabric-network-orchestrator/internal/yaml"
@@ -18,29 +20,13 @@ type MutationOperator struct {
 }
 
 type ScenarioMutation struct {
-	Rule          validate.RuleID `json:"rule"`
-	OperatorIndex int             `json:"operatorIndex"`
-}
-
-func (mutation *ScenarioMutation) UnmarshalJSON(data []byte) error {
-	var value struct {
-		Rule          validate.RuleID `json:"rule"`
-		OperatorIndex *int            `json:"operatorIndex"`
-	}
-	if err := json.Unmarshal(data, &value); err != nil {
-		return err
-	}
-	if value.OperatorIndex == nil {
-		return fmt.Errorf("operatorIndex is required")
-	}
-	mutation.Rule = value.Rule
-	mutation.OperatorIndex = *value.OperatorIndex
-	return nil
+	Rule          validate.RuleID `parquet:"rule,dict"`
+	OperatorIndex int             `parquet:"operatorIndex"`
 }
 
 type ScenarioRules struct {
-	Scenario  string             `json:"scenario"`
-	Mutations []ScenarioMutation `json:"mutations"`
+	Scenario  string             `parquet:"scenario,dict"`
+	Mutations []ScenarioMutation `parquet:"mutations,list"`
 }
 
 type Summary struct {
@@ -218,18 +204,15 @@ func Generate(seedYAML []byte, mutationCount int, outputDirectory string, progre
 		return Summary{}, fmt.Errorf("create config directory: %w", err)
 	}
 
-	manifest, err := os.Create(filepath.Join(outputDirectory, "scenarios.json"))
-
+	manifest, err := os.CreateTemp(outputDirectory, ".scenarios-*.parquet")
 	if err != nil {
 		return Summary{}, fmt.Errorf("create scenario manifest: %w", err)
 	}
-
-	writer := bufio.NewWriter(manifest)
-
-	if _, err := writer.WriteString("[\n"); err != nil {
-		manifest.Close()
-		return Summary{}, fmt.Errorf("write scenario manifest: %w", err)
-	}
+	defer os.Remove(manifest.Name())
+	writer := parquet.NewGenericWriter[ScenarioRules](manifest,
+		parquet.Compression(&zstd.Codec{}),
+		parquet.MaxRowsPerRowGroup(64*1024),
+	)
 
 	summary := Summary{}
 
@@ -249,19 +232,7 @@ func Generate(seedYAML []byte, mutationCount int, outputDirectory string, progre
 			return fmt.Errorf("write scenario %s: %w", scenarioName, err)
 		}
 
-		entry, err := json.Marshal(ScenarioRules{Scenario: scenarioName, Mutations: mutations})
-
-		if err != nil {
-			return fmt.Errorf("encode scenario %s: %w", scenarioName, err)
-		}
-
-		if summary.Total > 0 {
-			if _, err := writer.WriteString(",\n"); err != nil {
-				return fmt.Errorf("write scenario manifest: %w", err)
-			}
-		}
-
-		if _, err := writer.WriteString("  " + string(entry)); err != nil {
+		if _, err := writer.Write([]ScenarioRules{{Scenario: scenarioName, Mutations: mutations}}); err != nil {
 			return fmt.Errorf("write scenario manifest: %w", err)
 		}
 
@@ -275,22 +246,13 @@ func Generate(seedYAML []byte, mutationCount int, outputDirectory string, progre
 	})
 
 	if err != nil {
-		manifest.Close()
-		return Summary{}, err
+		return Summary{}, errors.Join(err, writer.Close(), manifest.Close())
 	}
-
-	if _, err := writer.WriteString("\n]\n"); err != nil {
-		manifest.Close()
-		return Summary{}, fmt.Errorf("write scenario manifest: %w", err)
-	}
-
-	if err := writer.Flush(); err != nil {
-		manifest.Close()
-		return Summary{}, fmt.Errorf("flush scenario manifest: %w", err)
-	}
-
-	if err := manifest.Close(); err != nil {
+	if err := errors.Join(writer.Close(), manifest.Close()); err != nil {
 		return Summary{}, fmt.Errorf("close scenario manifest: %w", err)
+	}
+	if err := os.Rename(manifest.Name(), filepath.Join(outputDirectory, "scenarios.parquet")); err != nil {
+		return Summary{}, fmt.Errorf("replace scenario manifest: %w", err)
 	}
 
 	return summary, nil
