@@ -19,7 +19,9 @@ func newValidateCommand() *cobra.Command {
 			if progressInterval <= 0 {
 				return fmt.Errorf("--progress-interval must be greater than zero")
 			}
-			return validateDirectory(directory, progressInterval, cmd.OutOrStdout())
+			return runPhase("validation", phaseParameters{Output: directory, ProgressInterval: progressInterval}, cmd.OutOrStdout(), func() error {
+				return validateDirectory(directory, progressInterval, cmd.OutOrStdout())
+			})
 		},
 	}
 	command.Flags().StringVar(&directory, "output", "output", "Directory containing scenarios.json and config; receives results.json")

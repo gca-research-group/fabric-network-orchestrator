@@ -234,6 +234,20 @@ For `generate`, the `--seed` flag is required and selects the valid YAML configu
 
 Both phases process the corpus incrementally without retaining it in memory. Validation first counts manifest entries with a streaming read. Both `generate` and `validate` accept `--progress-interval N` to report progress every N scenarios (default `1000`; must be greater than zero). Start and completion are always reported.
 
+Both commands also print UTC start and finish timestamps and elapsed duration, independently of the progress interval. Timing begins after argument validation, before reading the seed or counting the manifest, and ends after scenario/result files have been written. Elapsed duration uses Go's monotonic clock.
+
+`<output>/metadata.json` records the current experiment using separate `generation` and `validation` sections. Each section contains:
+
+- `parameters`: effective command flags, including defaults. Generation records `seed`, `mutationCount`, `output`, and `progressInterval`; validation records `output` and `progressInterval`.
+- `workingDirectory`: the invocation's working directory, used to interpret relative paths.
+- `startedAt` and `finishedAt`: UTC RFC3339 timestamps with fractional seconds when present.
+- `durationSeconds`: elapsed duration in seconds.
+- `status`: `running`, `succeeded`, or `failed`, plus `error` when the operation fails.
+
+The command first saves a `running` record without `finishedAt` or `durationSeconds`, then updates it when processing returns. Ordinary failures, including partial or failed verification scenarios, receive a completed `failed` record. Metadata writes use a temporary file in the output directory and rename it after the complete JSON has been closed. Metadata-write errors cause a nonzero exit and preserve any operation error.
+
+Starting generation replaces the metadata and clears previous validation metadata. Validation preserves generation metadata and replaces only its own section; an existing corpus without metadata receives a validation-only record. Malformed existing metadata is rejected during validation. One output directory represents the latest experiment, with no run history. Concurrent commands targeting the same output directory are unsupported, and interrupted processes may leave a `running` record. `seed generate` does not produce metadata.
+
 Subcommands are required: replace the former `experiment-runner --seed ...` invocation with `experiment-runner generate --seed ...`, followed by `experiment-runner validate --output ...`. Use `--help` at the root, on `seed`, or on any individual command for usage.
 
 ## Samples

@@ -97,7 +97,7 @@ func TestSeparateWorkflow(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if !entry.IsDir() && path != resultsPath {
+		if !entry.IsDir() && path != resultsPath && entry.Name() != "metadata.json" {
 			before[path] = readFile(t, path)
 		}
 		return nil

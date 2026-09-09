@@ -64,6 +64,7 @@ func TestGenerateFlagOverridesAndIsolation(t *testing.T) {
 }
 
 func TestGenerateErrors(t *testing.T) {
+	t.Chdir(t.TempDir())
 	for _, test := range []struct {
 		args    []string
 		message string
