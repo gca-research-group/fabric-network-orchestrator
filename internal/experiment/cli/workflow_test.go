@@ -80,6 +80,9 @@ func TestSeparateWorkflow(t *testing.T) {
 	if strings.Contains(output.String(), "validation") {
 		t.Fatal("generation ran validation")
 	}
+	if _, err := os.Stat(filepath.Join(directory, "config")); !os.IsNotExist(err) {
+		t.Fatalf("generation created a config directory: %v", err)
+	}
 	if !strings.Contains(output.String(), "generation progress: 2/") || strings.Contains(output.String(), "generation progress: 1/") {
 		t.Fatalf("generation ignored progress interval: %s", output.String())
 	}
@@ -162,46 +165,6 @@ func TestInvalidManifestPreservesExistingResults(t *testing.T) {
 	}
 }
 
-func TestValidationUnsuccessfulScenarios(t *testing.T) {
-	for _, status := range []string{"partial", "failed", "missing"} {
-		t.Run(status, func(t *testing.T) {
-			directory := t.TempDir()
-			rules := []validate.RuleID{validate.RuleChannelNameInvalid}
-			if status == "partial" {
-				rules = append(rules, validate.RuleOrganizationsRequired)
-			}
-			writeScenarioManifest(t, directory, []generator.ScenarioRules{{Scenario: "000001", Mutations: scenarioMutations(rules...)}})
-			if status != "missing" {
-				if err := os.Mkdir(filepath.Join(directory, "config"), 0755); err != nil {
-					t.Fatal(err)
-				}
-				writeFile(t, filepath.Join(directory, "config", "000001.yaml"), []byte("output: output/example\norganizations: []\n"))
-			}
-			if err := run([]string{"validate", "--output", directory}, &strings.Builder{}); err == nil || !strings.Contains(err.Error(), "expected validation rules") {
-				t.Fatalf("expected failed verification: %v", err)
-			}
-			results := readResults(t, filepath.Join(directory, "results.parquet"))
-			want := runner.StatusFailed
-			if status == "partial" {
-				want = runner.StatusPartial
-			}
-			if len(results) != 1 || results[0].Status != want {
-				t.Fatalf("results: %+v", results)
-			}
-			metadata := readMetadata(t, directory)
-			if metadata.Validation.Total == nil || metadata.Validation.Passed == nil || metadata.Validation.Partial == nil || metadata.Validation.Failed == nil || *metadata.Validation.Total != 1 {
-				t.Fatalf("validation metadata: %+v", metadata.Validation)
-			}
-			if status == "partial" && (*metadata.Validation.Partial != 1 || *metadata.Validation.Failed != 0) {
-				t.Fatalf("partial validation metadata: %+v", metadata.Validation)
-			}
-			if status != "partial" && (*metadata.Validation.Failed != 1 || *metadata.Validation.Partial != 0) {
-				t.Fatalf("failed validation metadata: %+v", metadata.Validation)
-			}
-		})
-	}
-}
-
 func scenarioMutations(rules ...validate.RuleID) []generator.ScenarioMutation {
 	result := make([]generator.ScenarioMutation, 0, len(rules))
 	for _, rule := range rules {
@@ -221,7 +184,21 @@ type parquetResult struct {
 
 func writeScenarioManifest(t *testing.T, directory string, scenarios []generator.ScenarioRules) {
 	t.Helper()
-	if err := parquet.WriteFile(filepath.Join(directory, "scenarios.parquet"), scenarios); err != nil {
+	file, err := os.Create(filepath.Join(directory, "scenarios.parquet"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := parquet.NewGenericWriter[generator.ScenarioRules](file)
+	writer.SetKeyValueMetadata(generator.SeedYAMLMetadataKey, seed.YAML)
+	if _, err := writer.Write(scenarios); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
 }

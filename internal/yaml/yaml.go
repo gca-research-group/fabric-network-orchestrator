@@ -1,6 +1,7 @@
 package yaml
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 
@@ -224,4 +225,19 @@ func (n *Node) ToFile(name string) error {
 	}
 
 	return nil
+}
+
+// ToBytes encodes the YAML document using the same formatting as ToFile.
+func (n *Node) ToBytes() ([]byte, error) {
+	node, err := n.MarshalYAML()
+	if err != nil {
+		return nil, err
+	}
+	var output bytes.Buffer
+	encoder := yaml.NewEncoder(&output)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(node); err != nil {
+		return nil, err
+	}
+	return output.Bytes(), nil
 }

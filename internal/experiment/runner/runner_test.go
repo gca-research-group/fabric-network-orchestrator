@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,27 +10,18 @@ import (
 	"github.com/parquet-go/parquet-go/format"
 
 	"github.com/gca-research-group/fabric-network-orchestrator/internal/experiment/generator"
+	"github.com/gca-research-group/fabric-network-orchestrator/internal/experiment/seed"
 	"github.com/gca-research-group/fabric-network-orchestrator/internal/validate"
 )
 
 func TestRunChecksEveryScenario(t *testing.T) {
 	outputDirectory := t.TempDir()
-	configDirectory := filepath.Join(outputDirectory, "config")
-	if err := os.Mkdir(configDirectory, 0755); err != nil {
-		t.Fatal(err)
-	}
-
 	scenarios := []generator.ScenarioRules{
-		{Scenario: "000001", Mutations: mutations(validate.RuleOrganizationsRequired, validate.RuleOrdererTopologyRequired)},
-		{Scenario: "000002", Mutations: mutations(validate.RuleOrganizationsRequired, validate.RuleApplicationCapabilityUnsupported)},
+		{Scenario: "000001", Mutations: mutations(validate.RuleOrganizationsRequired)},
+		{Scenario: "000002", Mutations: mutations(validate.RuleApplicationCapabilityUnsupported)},
 		{Scenario: "000003", Mutations: mutations(validate.RuleChannelNameInvalid)},
 	}
-	writeScenario(t, configDirectory, "000001", "output: output/example\norganizations: []\n")
-	writeScenario(t, configDirectory, "000002", "output: output/example\ncapabilities:\n  channel: V2_0\n  application: V2_5\n  orderer: V2_0\norganizations: []\n")
-	writeScenario(t, configDirectory, "000003", "output: output/example\norganizations: []\n")
-	if err := parquet.WriteFile(filepath.Join(outputDirectory, "scenarios.parquet"), scenarios); err != nil {
-		t.Fatal(err)
-	}
+	writeManifest(t, outputDirectory, scenarios, seed.YAML)
 
 	var progress []int
 	summary, err := RunDirectory(outputDirectory, func(completed int) {
@@ -38,7 +30,7 @@ func TestRunChecksEveryScenario(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if summary.Total != 3 || summary.Passed != 1 || summary.Partial != 1 || summary.Failed != 1 {
+	if summary.Total != 3 || summary.Passed != 3 || summary.Partial != 0 || summary.Failed != 0 {
 		t.Fatalf("unexpected summary: %+v", summary)
 	}
 	if len(progress) != 3 || progress[0] != 1 || progress[1] != 2 || progress[2] != 3 {
@@ -48,11 +40,8 @@ func TestRunChecksEveryScenario(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode results: %v", err)
 	}
-	if rows[0].Status != StatusPassed || rows[1].Status != StatusPartial || rows[2].Status != StatusFailed {
+	if rows[0].Status != StatusPassed || rows[1].Status != StatusPassed || rows[2].Status != StatusPassed {
 		t.Fatalf("unexpected result states: %+v", rows)
-	}
-	if len(rows[1].Missing) != 1 || rows[1].Missing[0] != validate.RuleApplicationCapabilityUnsupported {
-		t.Fatalf("unexpected missing rules: %+v", rows[1].Missing)
 	}
 	assertZstdResults(t, filepath.Join(outputDirectory, "results.parquet"))
 }
@@ -78,7 +67,7 @@ func TestCountScenariosRejectsEmptyAndIncompatibleParquet(t *testing.T) {
 			var err error
 			switch value := rows.(type) {
 			case []generator.ScenarioRules:
-				err = parquet.WriteFile(path, value)
+				writeManifest(t, directory, value, seed.YAML)
 			case []struct{ Other string }:
 				err = parquet.WriteFile(path, value)
 			}
@@ -87,6 +76,21 @@ func TestCountScenariosRejectsEmptyAndIncompatibleParquet(t *testing.T) {
 			}
 			if _, err := CountScenarios(directory); err == nil {
 				t.Fatal("expected manifest to be rejected")
+			}
+		})
+	}
+}
+
+func TestCountScenariosRejectsMissingAndInvalidEmbeddedSeed(t *testing.T) {
+	for name, seedYAML := range map[string]string{
+		"missing": "",
+		"invalid": "output: output/example\norganizations: []\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			directory := t.TempDir()
+			writeManifest(t, directory, []generator.ScenarioRules{{Scenario: "000001", Mutations: mutations(validate.RuleOrganizationsRequired)}}, seedYAML)
+			if _, err := CountScenarios(directory); err == nil {
+				t.Fatal("expected embedded seed to be rejected")
 			}
 		})
 	}
@@ -124,9 +128,16 @@ func mutations(rules ...validate.RuleID) []generator.ScenarioMutation {
 	return result
 }
 
-func writeScenario(t *testing.T, directory, name, contents string) {
+func writeManifest(t *testing.T, directory string, scenarios []generator.ScenarioRules, seedYAML string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(directory, name+".yaml"), []byte(contents), 0644); err != nil {
+	file, err := os.Create(filepath.Join(directory, "scenarios.parquet"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := parquet.NewGenericWriter[generator.ScenarioRules](file)
+	writer.SetKeyValueMetadata(generator.SeedYAMLMetadataKey, seedYAML)
+	_, writeErr := writer.Write(scenarios)
+	if err := errors.Join(writeErr, writer.Close(), file.Close()); err != nil {
 		t.Fatal(err)
 	}
 }

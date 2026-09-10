@@ -9,6 +9,7 @@ import (
 	"github.com/parquet-go/parquet-go"
 	"github.com/parquet-go/parquet-go/compress/zstd"
 
+	"github.com/gca-research-group/fabric-network-orchestrator/internal/config"
 	"github.com/gca-research-group/fabric-network-orchestrator/internal/validate"
 	"github.com/gca-research-group/fabric-network-orchestrator/internal/yaml"
 )
@@ -184,10 +185,14 @@ var incompatibilities = IncompatibilityPolicy{
 
 const DefaultMutationCount = 3
 
+const SeedYAMLMetadataKey = "fabric-network-orchestrator.seed-yaml"
+
 func Generate(seedYAML []byte, mutationCount int, outputDirectory string, progress ProgressFunc) (Summary, error) {
-	seed, err := yaml.FromBytes(seedYAML)
-	if err != nil {
+	if _, err := yaml.FromBytes(seedYAML); err != nil {
 		return Summary{}, fmt.Errorf("parse seed configuration: %w", err)
+	}
+	if _, err := config.LoadConfigFromYAML(seedYAML); err != nil {
+		return Summary{}, fmt.Errorf("validate seed configuration: %w", err)
 	}
 
 	total, err := countCombinations(operators, mutationCount, incompatibilities)
@@ -198,10 +203,8 @@ func Generate(seedYAML []byte, mutationCount int, outputDirectory string, progre
 		progress(0, total)
 	}
 
-	configDirectory := filepath.Join(outputDirectory, "config")
-
-	if err := os.MkdirAll(configDirectory, 0755); err != nil {
-		return Summary{}, fmt.Errorf("create config directory: %w", err)
+	if err := os.MkdirAll(outputDirectory, 0755); err != nil {
+		return Summary{}, fmt.Errorf("create output directory: %w", err)
 	}
 
 	manifest, err := os.CreateTemp(outputDirectory, ".scenarios-*.parquet")
@@ -213,24 +216,18 @@ func Generate(seedYAML []byte, mutationCount int, outputDirectory string, progre
 		parquet.Compression(&zstd.Codec{}),
 		parquet.MaxRowsPerRowGroup(64*1024),
 	)
+	writer.SetKeyValueMetadata(SeedYAMLMetadataKey, string(seedYAML))
 
 	summary := Summary{}
 
 	err = WalkCombinations(operators, mutationCount, incompatibilities, func(scenario []MutationOperator) error {
-		clone := seed.Clone()
-		doc := clone.Document()
 		mutations := make([]ScenarioMutation, 0, len(scenario))
 
 		for _, operator := range scenario {
 			mutations = append(mutations, ScenarioMutation{Rule: operator.RuleID, OperatorIndex: operator.Index})
-			operator.Apply(doc)
 		}
 
 		scenarioName := fmt.Sprintf("%06d", summary.Total+1)
-
-		if err := clone.ToFile(filepath.Join(configDirectory, scenarioName+".yaml")); err != nil {
-			return fmt.Errorf("write scenario %s: %w", scenarioName, err)
-		}
 
 		if _, err := writer.Write([]ScenarioRules{{Scenario: scenarioName, Mutations: mutations}}); err != nil {
 			return fmt.Errorf("write scenario manifest: %w", err)
@@ -256,4 +253,18 @@ func Generate(seedYAML []byte, mutationCount int, outputDirectory string, progre
 	}
 
 	return summary, nil
+}
+
+// ReplayScenario clones the seed and applies the scenario's recorded mutations in order.
+func ReplayScenario(seed *yaml.Node, scenario ScenarioRules) (*yaml.Node, error) {
+	clone := seed.Clone()
+	document := clone.Document()
+	for _, mutation := range scenario.Mutations {
+		operator, found := FindMutationOperator(mutation)
+		if !found {
+			return nil, fmt.Errorf("unknown mutation operator %s/%d", mutation.Rule, mutation.OperatorIndex)
+		}
+		operator.Apply(document)
+	}
+	return clone, nil
 }

@@ -9,13 +9,14 @@ import (
 
 	"github.com/parquet-go/parquet-go"
 
+	"github.com/gca-research-group/fabric-network-orchestrator/internal/config"
 	"github.com/gca-research-group/fabric-network-orchestrator/internal/experiment/generator"
 )
 
 // CountScenarios reads and validates the manifest incrementally without loading the corpus.
 // It checks the complete Parquet document before validation creates results.parquet.
 func CountScenarios(directory string) (int, error) {
-	file, err := openScenarioManifest(directory)
+	file, _, err := openScenarioManifest(directory)
 	if err != nil {
 		return 0, err
 	}
@@ -45,26 +46,35 @@ func CountScenarios(directory string) (int, error) {
 	return total, nil
 }
 
-func openScenarioManifest(directory string) (*os.File, error) {
+func openScenarioManifest(directory string) (*os.File, []byte, error) {
 	path := filepath.Join(directory, "scenarios.parquet")
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("open scenario manifest: %w", err)
+		return nil, nil, fmt.Errorf("open scenario manifest: %w", err)
 	}
 	info, err := file.Stat()
 	if err != nil {
 		file.Close()
-		return nil, fmt.Errorf("inspect scenario manifest: %w", err)
+		return nil, nil, fmt.Errorf("inspect scenario manifest: %w", err)
 	}
 	parquetFile, err := parquet.OpenFile(file, info.Size())
 	if err != nil {
 		file.Close()
-		return nil, fmt.Errorf("decode scenario manifest: %w", err)
+		return nil, nil, fmt.Errorf("decode scenario manifest: %w", err)
 	}
 	want := parquet.SchemaOf(new(generator.ScenarioRules)).String()
 	if got := parquetFile.Schema().String(); got != want {
 		file.Close()
-		return nil, fmt.Errorf("decode scenario manifest: incompatible schema: got %s, want %s", got, want)
+		return nil, nil, fmt.Errorf("decode scenario manifest: incompatible schema: got %s, want %s", got, want)
 	}
-	return file, nil
+	seedYAML, found := parquetFile.Lookup(generator.SeedYAMLMetadataKey)
+	if !found || seedYAML == "" {
+		file.Close()
+		return nil, nil, fmt.Errorf("decode scenario manifest: missing embedded seed YAML")
+	}
+	if _, err := config.LoadConfigFromYAML([]byte(seedYAML)); err != nil {
+		file.Close()
+		return nil, nil, fmt.Errorf("decode scenario manifest: invalid embedded seed YAML: %w", err)
+	}
+	return file, []byte(seedYAML), nil
 }

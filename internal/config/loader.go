@@ -19,9 +19,19 @@ func LoadConfigFromPath(path string) (*Config, error) {
 		return nil, fmt.Errorf("loading config file: %w", err)
 	}
 
-	var config Config
+	return loadConfig(data, strings.ToLower(filepath.Ext(path)))
+}
 
-	switch strings.ToLower(filepath.Ext(path)) {
+// LoadConfigFromYAML parses and validates a YAML configuration held in memory.
+func LoadConfigFromYAML(data []byte) (*Config, error) {
+	return loadConfig(data, ".yaml")
+}
+
+func loadConfig(data []byte, extension string) (*Config, error) {
+	var config Config
+	var err error
+
+	switch extension {
 	case ".json":
 		err = json.Unmarshal(data, &config)
 	case ".yml", ".yaml":

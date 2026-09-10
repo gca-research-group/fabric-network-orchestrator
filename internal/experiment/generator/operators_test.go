@@ -313,7 +313,6 @@ func TestGenerateStreamsValidManifest(t *testing.T) {
 			t.Fatalf("progress update %d reported %d", completed, reported)
 		}
 	}
-	foundCustomSeed := false
 	for _, scenario := range scenarios {
 		if len(scenario.Mutations) != 1 {
 			t.Fatalf("scenario %s has %d mutations", scenario.Scenario, len(scenario.Mutations))
@@ -322,20 +321,45 @@ func TestGenerateStreamsValidManifest(t *testing.T) {
 		if !found || operator.RuleID != scenario.Mutations[0].Rule || operator.Index != scenario.Mutations[0].OperatorIndex {
 			t.Fatalf("scenario %s has an invalid operator reference: %+v", scenario.Scenario, scenario.Mutations[0])
 		}
-		path := filepath.Join(outputDirectory, "config", scenario.Scenario+".yaml")
-		generated, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("scenario %s was not written: %v", scenario.Scenario, err)
-		}
-		if strings.Contains(string(generated), "network: custom-seed") {
-			foundCustomSeed = true
-		}
 	}
-	if !foundCustomSeed {
-		t.Fatal("generated configurations do not use the supplied seed YAML")
+	if _, err := os.Stat(filepath.Join(outputDirectory, "config")); !os.IsNotExist(err) {
+		t.Fatalf("generation created a config directory: %v", err)
+	}
+	file, err := os.Open(filepath.Join(outputDirectory, "scenarios.parquet"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := file.Stat()
+	if err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	document, err := parquet.OpenFile(file, info.Size())
+	file.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if embedded, found := document.Lookup(SeedYAMLMetadataKey); !found || embedded != seedYAML {
+		t.Fatal("scenario manifest does not contain the exact supplied seed YAML")
 	}
 	if summary.MutationOperatorsUsed != summary.Total {
 		t.Fatalf("used %d mutation operators for %d one-mutation scenarios", summary.MutationOperatorsUsed, summary.Total)
+	}
+}
+
+func TestReplayScenarioAppliesRecordedMutations(t *testing.T) {
+	seed := seedNode(t)
+	mutation := ScenarioMutation{Rule: operators[0][0].RuleID, OperatorIndex: operators[0][0].Index}
+	replayed, err := ReplayScenario(seed, ScenarioRules{Scenario: "000001", Mutations: []ScenarioMutation{mutation}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	direct := seed.Clone()
+	operators[0][0].Apply(direct.Document())
+	replayedYAML, _ := replayed.ToBytes()
+	directYAML, _ := direct.ToBytes()
+	if string(replayedYAML) != string(directYAML) {
+		t.Fatal("replayed mutation differs from direct application")
 	}
 }
 

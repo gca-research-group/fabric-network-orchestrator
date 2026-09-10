@@ -13,6 +13,7 @@ import (
 	"github.com/gca-research-group/fabric-network-orchestrator/internal/config"
 	"github.com/gca-research-group/fabric-network-orchestrator/internal/experiment/generator"
 	"github.com/gca-research-group/fabric-network-orchestrator/internal/validate"
+	experimentyaml "github.com/gca-research-group/fabric-network-orchestrator/internal/yaml"
 )
 
 type Status string
@@ -59,7 +60,7 @@ type Summary struct {
 type ProgressFunc func(completed int)
 
 func RunDirectory(outputDirectory string, progress ProgressFunc) (Summary, error) {
-	manifest, err := openScenarioManifest(outputDirectory)
+	manifest, seedYAML, err := openScenarioManifest(outputDirectory)
 	if err != nil {
 		return Summary{}, err
 	}
@@ -67,6 +68,10 @@ func RunDirectory(outputDirectory string, progress ProgressFunc) (Summary, error
 
 	reader := parquet.NewGenericReader[generator.ScenarioRules](manifest)
 	defer reader.Close()
+	seed, err := experimentyaml.FromBytes(seedYAML)
+	if err != nil {
+		return Summary{}, fmt.Errorf("decode embedded seed YAML: %w", err)
+	}
 
 	resultsFile, err := os.CreateTemp(outputDirectory, ".results-*.parquet")
 	if err != nil {
@@ -87,7 +92,7 @@ func RunDirectory(outputDirectory string, progress ProgressFunc) (Summary, error
 				return summary, errors.Join(fmt.Errorf("decode scenario manifest entry: %w", err), writer.Close(), resultsFile.Close())
 			}
 
-			result := evaluate(outputDirectory, scenario)
+			result := evaluate(seed, scenario)
 			if _, err := writer.Write([]resultRow{parquetResult(result)}); err != nil {
 				return summary, errors.Join(fmt.Errorf("write result document: %w", err), writer.Close(), resultsFile.Close())
 			}
@@ -122,11 +127,17 @@ func RunDirectory(outputDirectory string, progress ProgressFunc) (Summary, error
 	return summary, nil
 }
 
-func evaluate(outputDirectory string, scenario generator.ScenarioRules) Result {
+func evaluate(seed *experimentyaml.Node, scenario generator.ScenarioRules) Result {
 	expected := expectedRules(scenario)
 	result := Result{Scenario: scenario.Scenario, Expected: expected}
-	path := filepath.Join(outputDirectory, "config", scenario.Scenario+".yaml")
-	_, err := config.LoadConfigFromPath(path)
+	configuration, err := generator.ReplayScenario(seed, scenario)
+	if err == nil {
+		var data []byte
+		data, err = configuration.ToBytes()
+		if err == nil {
+			_, err = config.LoadConfigFromYAML(data)
+		}
+	}
 
 	validationErrors := validate.Errors(err)
 	if len(validationErrors) > 0 {
