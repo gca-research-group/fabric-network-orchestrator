@@ -2,6 +2,7 @@ package application
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/gca-research-group/fabric-network-orchestrator/internal/chaincode"
 	"github.com/gca-research-group/fabric-network-orchestrator/internal/compose"
@@ -21,6 +22,26 @@ func NewWorkflows(exec executor.Executor) *Workflows {
 		exec = &executor.DefaultExecutor{}
 	}
 	return &Workflows{executor: exec}
+}
+
+// Deploy generates artifacts and deploys the network and configured chaincodes.
+// On failure, completed stages are preserved for inspection and recovery.
+func (w *Workflows) Deploy(cfg *config.Config) error {
+	steps := []struct {
+		name string
+		fn   func(*config.Config) error
+	}{
+		{"generate artifacts", w.GenerateArtifacts},
+		{"deploy network", w.DeployNetwork},
+		{"deploy chaincodes", w.DeployChaincodes},
+	}
+	for _, step := range steps {
+		slog.Info("Executing deployment stage", "stage", step.name)
+		if err := step.fn(cfg); err != nil {
+			return fmt.Errorf("deployment failed at stage %s: %w", step.name, err)
+		}
+	}
+	return nil
 }
 
 func (w *Workflows) GenerateArtifacts(cfg *config.Config) error {

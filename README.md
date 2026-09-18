@@ -56,6 +56,14 @@ go mod tidy
 
 ## Command Workflow
 
+### Complete Deployment
+
+```bash
+fno deploy --config samples/minimal-network.yml
+```
+
+Loads and validates the configuration once, then generates artifacts, deploys the network, and deploys configured chaincodes in sequence. The artifact output directory must be empty. Deployment stops at the first failure and reports the failed stage; completed stages are preserved. Use the individual commands below to resume after fixing a failure, such as `fno chaincode deploy` when only chaincode deployment failed.
+
 ### Validate a Configuration
 
 ```bash
@@ -70,9 +78,6 @@ fno artifacts generate --config samples/minimal-network.yml
 
 Generates:
 
-- Cryptographic material
-- MSP structures
-- TLS certificates
 - Channel configuration artefacts
 - Docker Compose descriptors
 
@@ -85,11 +90,12 @@ fno network deploy --config samples/minimal-network.yml
 This command performs:
 
 1. Configuration validation
-2. Identity generation
-3. Artefact generation
+2. Identity generation (certificates, MSP structures, and TLS material)
+3. Genesis block generation
 4. Network provisioning
 5. Channel creation and joining
-6. Chaincode deployment (when configured)
+
+Generate artifacts before running this command. Deploy chaincodes separately afterward, or use `fno deploy` for the complete workflow.
 
 ### Manage Network Lifecycle
 

@@ -44,6 +44,44 @@ func TestGenerateArtifactsRejectsNonEmptyDirectory(t *testing.T) {
 	}
 }
 
+func TestDeployPreservesExistingArtifactsAndStopsBeforeNetwork(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "existing")
+	if err := os.WriteFile(path, []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	exec := &fakeExecutor{}
+	cfg := artifactTestConfig(dir)
+	err := NewWorkflows(exec).Deploy(&cfg)
+	if err == nil || !strings.Contains(err.Error(), "stage generate artifacts:") {
+		t.Fatalf("expected artifact stage failure, got %v", err)
+	}
+	if len(exec.commands) != 0 {
+		t.Fatalf("deployment continued after artifact failure: %v", exec.commands)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != "data" {
+		t.Fatalf("existing artifacts changed: %q, %v", got, err)
+	}
+}
+
+func TestDeployGeneratesArtifactsBeforeNetworkAndStopsOnNetworkFailure(t *testing.T) {
+	cfg := artifactTestConfig(t.TempDir())
+	exec := &fakeExecutor{failAt: 1}
+	err := NewWorkflows(exec).Deploy(&cfg)
+	if err == nil || !strings.Contains(err.Error(), "stage deploy network:") {
+		t.Fatalf("expected network stage failure, got %v", err)
+	}
+	for _, name := range []string{"configtx.yml", "network.yml"} {
+		if _, err := os.Stat(filepath.Join(cfg.Output, name)); err != nil {
+			t.Fatalf("artifact %s was not preserved: %v", name, err)
+		}
+	}
+	if len(exec.commands) != 1 || !strings.HasPrefix(exec.commands[0], "docker ") {
+		t.Fatalf("unexpected commands after network failure: %v", exec.commands)
+	}
+}
+
 func TestDeployChaincodesPreparesCompilerBeforePublication(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

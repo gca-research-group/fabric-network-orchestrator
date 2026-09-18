@@ -9,8 +9,8 @@ import (
 
 var chaincodeDeployCmd = &cobra.Command{
 	Use:   "deploy",
-	Short: "Stop and remove all running containers",
-	Long:  `Stop and remove all running containers.`,
+	Short: "Deploy configured chaincodes",
+	Long:  `Deploy configured chaincodes to an already deployed network.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 
 		var config *config.Config

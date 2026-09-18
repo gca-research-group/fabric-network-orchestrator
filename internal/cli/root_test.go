@@ -3,7 +3,7 @@ package cli
 import "testing"
 
 func TestRootCommandRegistersSupportedCommands(t *testing.T) {
-	want := map[string]bool{"artifacts": false, "chaincode": false, "identity": false, "image": false, "network": false}
+	want := map[string]bool{"deploy": false, "artifacts": false, "chaincode": false, "identity": false, "image": false, "network": false}
 	for _, command := range rootCmd.Commands() {
 		if _, ok := want[command.Name()]; ok {
 			want[command.Name()] = true
