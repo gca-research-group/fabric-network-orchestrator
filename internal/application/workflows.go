@@ -91,6 +91,10 @@ func (w *Workflows) StopNetwork(cfg *config.Config) error {
 }
 
 func (w *Workflows) DeployChaincodes(cfg *config.Config) error {
+	if err := compose.PullChaincodeCompilerImages(*cfg, w.executor); err != nil {
+		return fmt.Errorf("deploy chaincodes: prepare compiler images: %w", err)
+	}
+
 	if err := chaincode.NewChaincode(cfg, w.executor).Publish(); err != nil {
 		return fmt.Errorf("deploy chaincodes: %w", err)
 	}

@@ -44,6 +44,50 @@ func TestGenerateArtifactsRejectsNonEmptyDirectory(t *testing.T) {
 	}
 }
 
+func TestDeployChaincodesPreparesCompilerBeforePublication(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		output []byte
+		want   []string
+	}{
+		{"missing", nil, []string{
+			"docker image ls --quiet --filter reference=hyperledger/fabric-ccenv:2.5",
+			"docker pull hyperledger/fabric-ccenv:2.5",
+		}},
+		{"cached", []byte("image-id\n"), []string{
+			"docker image ls --quiet --filter reference=hyperledger/fabric-ccenv:2.5",
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			exec := &fakeExecutor{output: tc.output, failAt: len(tc.want) + 1}
+			cfg := artifactTestConfig("artifacts")
+			cfg.Channels[0].Chaincodes = []config.Chaincode{{Name: "asset", Version: "1.0"}}
+			err := NewWorkflows(exec).DeployChaincodes(&cfg)
+			if err == nil || !strings.Contains(err.Error(), "Package the Chaincodes") {
+				t.Fatalf("expected publication to start after preparation, got %v", err)
+			}
+			if len(exec.commands) != len(tc.want)+1 || !reflect.DeepEqual(exec.commands[:len(tc.want)], tc.want) || !strings.HasPrefix(exec.commands[len(tc.want)], "docker exec ") {
+				t.Fatalf("unexpected preparation/publication order: %v", exec.commands)
+			}
+		})
+	}
+}
+
+func TestDeployChaincodesStopsOnCompilerPreparationFailure(t *testing.T) {
+	for _, failAt := range []int{1, 2} {
+		exec := &fakeExecutor{failAt: failAt}
+		cfg := artifactTestConfig("artifacts")
+		cfg.Channels[0].Chaincodes = []config.Chaincode{{Name: "asset", Version: "1.0"}}
+		err := NewWorkflows(exec).DeployChaincodes(&cfg)
+		if err == nil || !strings.Contains(err.Error(), "deploy chaincodes: prepare compiler images:") {
+			t.Fatalf("expected compiler preparation failure, got %v", err)
+		}
+		if len(exec.commands) != failAt {
+			t.Fatalf("publication continued after preparation failure: %v", exec.commands)
+		}
+	}
+}
+
 func TestStopNetworkUsesInjectedExecutor(t *testing.T) {
 	exec := &fakeExecutor{output: []byte("peer0.example.org\norderer.example.org\n")}
 	err := NewWorkflows(exec).StopNetwork(&config.Config{Network: "example"})
