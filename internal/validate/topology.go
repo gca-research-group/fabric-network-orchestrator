@@ -52,14 +52,14 @@ func ValidateTopologyFn(configuration spec.Config) error {
 		for _, peer := range organization.Peers {
 			collect(DuplicatePeerNameFn(peer, organization.Name, peerNames))
 			collect(DuplicatePeerSubdomainFn(peer, organization.Name, peerSubdomains))
-			collect(InvalidPeerVersionFn(peer, organization.Name, configuration.Capabilities.Channel))
+			collect(InvalidPeerVersionFn(peer, organization.Name, configuration.Capabilities.Channel, configuration.Capabilities.Application))
 			collect(ExposedPortConflictFn(peer.ExposePort, portOwner{ownerType: "peer", name: peer.Name}, exposedPorts))
 		}
 
 		ordererNames := make(map[string]struct{})
 		for _, orderer := range organization.Orderers {
 			collect(DuplicateOrdererNameFn(orderer, organization.Name, ordererNames))
-			collect(InvalidOrdererVersionFn(orderer, organization.Name, configuration.Capabilities.Channel))
+			collect(InvalidOrdererVersionFn(orderer, organization.Name, configuration.Capabilities.Channel, configuration.Capabilities.Orderer))
 			collect(ExposedPortConflictFn(orderer.ExposePort, portOwner{ownerType: "orderer", name: orderer.Name}, exposedPorts))
 		}
 	}

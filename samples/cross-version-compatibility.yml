@@ -4,7 +4,7 @@ network: cross-version-compatibility
 capabilities:
   channel: V2_0
   orderer: V2_0
-  application: V2_0
+  application: V2_5
 
 organizations:
   - name: Org1
@@ -25,7 +25,7 @@ organizations:
     peers:
       - name: Peer0
         subdomain: peer0
-        version: 2.3.3
+        version: 2.5.0
     certificateAuthority:
       version: 1.5.8
 

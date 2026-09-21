@@ -18,10 +18,27 @@ func TestEmptyOrdererSubdomainFn(t *testing.T) {
 }
 
 func TestInvalidOrdererVersionFn(t *testing.T) {
-	assertValidationError(t, InvalidOrdererVersionFn(spec.Orderer{Version: "2.4.0"}, "Org1", "V2_5"), RuleOrdererVersionInvalid, "Invalid Orderer Version", "orderer version of org Org1 invalid: version 2.4.0 is lower than required 2.5.0")
+	tests := []struct {
+		name              string
+		version           string
+		channelCapability string
+		ordererCapability string
+		minimum           string
+	}{
+		{name: "orderer capability is stricter", version: "2.4.0", channelCapability: "V2_0", ordererCapability: "V2_5", minimum: "2.5.0"},
+		{name: "channel capability is stricter", version: "2.5.0", channelCapability: "V3_0", ordererCapability: "V2_0", minimum: "3.0.0"},
+		{name: "equal capabilities", version: "2.4.0", channelCapability: "V2_5", ordererCapability: "V2_5", minimum: "2.5.0"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assertValidationError(t, InvalidOrdererVersionFn(spec.Orderer{Version: test.version}, "Org1", test.channelCapability, test.ordererCapability), RuleOrdererVersionInvalid, "Invalid Orderer Version", "orderer version of org Org1 invalid: version "+test.version+" is lower than required "+test.minimum)
+		})
+	}
+
 	for _, version := range []string{"", "2.5.0", "3.0.0"} {
-		t.Run(version, func(t *testing.T) {
-			assertNoError(t, InvalidOrdererVersionFn(spec.Orderer{Version: version}, "Org1", "V2_5"))
+		t.Run("valid "+version, func(t *testing.T) {
+			assertNoError(t, InvalidOrdererVersionFn(spec.Orderer{Version: version}, "Org1", "V2_0", "V2_5"))
 		})
 	}
 }

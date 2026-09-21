@@ -2,8 +2,20 @@ package validate
 
 import (
 	"fmt"
+	"github.com/gca-research-group/fabric-network-orchestrator/internal/spec"
 	"strings"
 )
+
+func minimumBinaryVersion(capabilities ...string) string {
+	var strictest string
+	for _, capability := range capabilities {
+		if spec.CapabilityMap[capability] > spec.CapabilityMap[strictest] {
+			strictest = capability
+		}
+	}
+
+	return spec.MinBinaryVersion[strictest]
+}
 
 func validateBinary(version, minimum string) error {
 	if version == "" {

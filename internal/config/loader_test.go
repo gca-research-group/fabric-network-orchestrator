@@ -244,9 +244,27 @@ func TestInvalidConfigurations(t *testing.T) {
 			expectError: formatError("peer.version.invalid", "Invalid Peer Version", "peer version of org Org1 invalid: version 2.4.0 is lower than required 2.5.0"),
 		},
 		{
+			name: "Peer version below application capability",
+			modify: func(c *Config) {
+				c.Capabilities.Channel = "V2_0"
+				c.Capabilities.Application = "V2_5"
+				c.Organizations[0].Peers[0].Version = "2.4.0"
+			},
+			expectError: formatError("peer.version.invalid", "Invalid Peer Version", "peer version of org Org1 invalid: version 2.4.0 is lower than required 2.5.0"),
+		},
+		{
 			name: "Orderer version below capability",
 			modify: func(c *Config) {
 				c.Capabilities.Channel = "V2_5"
+				c.Organizations[0].Orderers[0].Version = "2.4.0"
+			},
+			expectError: formatError("orderer.version.invalid", "Invalid Orderer Version", "orderer version of org Org1 invalid: version 2.4.0 is lower than required 2.5.0"),
+		},
+		{
+			name: "Orderer version below orderer capability",
+			modify: func(c *Config) {
+				c.Capabilities.Channel = "V2_0"
+				c.Capabilities.Orderer = "V2_5"
 				c.Organizations[0].Orderers[0].Version = "2.4.0"
 			},
 			expectError: formatError("orderer.version.invalid", "Invalid Orderer Version", "orderer version of org Org1 invalid: version 2.4.0 is lower than required 2.5.0"),

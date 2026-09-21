@@ -33,8 +33,8 @@ func EmptyOrdererSubdomainFn(orderer spec.Orderer, organizationName string) erro
 	return nil
 }
 
-func InvalidOrdererVersionFn(orderer spec.Orderer, organizationName, channelCapability string) error {
-	if err := validateBinary(orderer.Version, spec.MinBinaryVersion[channelCapability]); err != nil {
+func InvalidOrdererVersionFn(orderer spec.Orderer, organizationName, channelCapability, ordererCapability string) error {
+	if err := validateBinary(orderer.Version, minimumBinaryVersion(channelCapability, ordererCapability)); err != nil {
 		return &ValidationError{
 			RuleID: RuleOrdererVersionInvalid,
 			Rule:   "Invalid Orderer Version",

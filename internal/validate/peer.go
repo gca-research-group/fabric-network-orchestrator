@@ -37,8 +37,8 @@ func EmptyPeerSubdomainFn(peer spec.Peer, organizationName string) error {
 	return nil
 }
 
-func InvalidPeerVersionFn(peer spec.Peer, organizationName, channelCapability string) error {
-	if err := validateBinary(peer.Version, spec.MinBinaryVersion[channelCapability]); err != nil {
+func InvalidPeerVersionFn(peer spec.Peer, organizationName, channelCapability, applicationCapability string) error {
+	if err := validateBinary(peer.Version, minimumBinaryVersion(channelCapability, applicationCapability)); err != nil {
 		return &ValidationError{
 			RuleID: RulePeerVersionInvalid,
 			Rule:   "Invalid Peer Version",

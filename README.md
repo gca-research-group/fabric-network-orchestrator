@@ -181,13 +181,13 @@ FNO validates specifications before deployment using the following 44 rules. The
 | Peers | `peer.subdomain.duplicate` | Peer subdomains must be unique within an organization. |
 | Peers | `peer.port.invalid` | Explicit peer exposed ports must be in the TCP range. |
 | Peers | `peer.internal-port.invalid` | Explicit peer internal ports must be in the TCP range. |
-| Peers | `peer.version.invalid` | A configured peer version must satisfy the channel capability's minimum binary version. |
+| Peers | `peer.version.invalid` | A configured peer version must satisfy the stricter minimum required by the channel and application capabilities. |
 | Orderers | `orderer.name.required` | Every orderer must have a name. |
 | Orderers | `orderer.subdomain.required` | Every orderer must have a subdomain. |
 | Orderers | `orderer.name.duplicate` | Orderer names must be unique within an organization. |
 | Orderers | `orderer.port.invalid` | Explicit orderer exposed ports must be in the TCP range. |
 | Orderers | `orderer.internal-port.invalid` | Explicit orderer internal ports must be in the TCP range. |
-| Orderers | `orderer.version.invalid` | A configured orderer version must satisfy the channel capability's minimum binary version. |
+| Orderers | `orderer.version.invalid` | A configured orderer version must satisfy the stricter minimum required by the channel and orderer capabilities. |
 | Orderers | `orderer.topology.required` | The topology must contain at least one orderer. |
 | Chaincodes | `chaincode.name.required` | Every chaincode must have a name. |
 | Chaincodes | `chaincode.path.required` | Every chaincode must have a source path. |

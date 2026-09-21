@@ -148,14 +148,14 @@ For Fabric Capabilities:
   `∀ o₁, o₂ ∈ Organizations, o₁ ≠ o₂ ⟹ Name(o₁) ≠ Name(o₂)`
 
 ### Invalid Peer Version (`peer.version.invalid`)
-* **Description:** If a peer version is specified, it must be greater than or equal to the minimum required version for the chosen channel capability.
+* **Description:** If a peer version is specified, it must be greater than or equal to the stricter minimum required by the chosen channel and application capabilities.
 * **Formal:**
-  `∀ o ∈ Organizations, ∀ p ∈ Peers(o), Version(p) ≠ "" ⟹ Version(p) ≥ MinBinaryVersion[ChannelCap(C)]`
+  `∀ o ∈ Organizations, ∀ p ∈ Peers(o), Version(p) ≠ "" ⟹ Version(p) ≥ max(MinBinaryVersion[ChannelCap(C)], MinBinaryVersion[ApplicationCap(C)])`
 
 ### Invalid Orderer Version (`orderer.version.invalid`)
-* **Description:** If an orderer version is specified, it must be greater than or equal to the minimum required version for the chosen channel capability.
+* **Description:** If an orderer version is specified, it must be greater than or equal to the stricter minimum required by the chosen channel and orderer capabilities.
 * **Formal:**
-  `∀ o ∈ Organizations, ∀ ord ∈ Orderers(o), Version(ord) ≠ "" ⟹ Version(ord) ≥ MinBinaryVersion[ChannelCap(C)]`
+  `∀ o ∈ Organizations, ∀ ord ∈ Orderers(o), Version(ord) ≠ "" ⟹ Version(ord) ≥ max(MinBinaryVersion[ChannelCap(C)], MinBinaryVersion[OrdererCap(C)])`
 
 ### No Orderer Topology (`orderer.topology.required`)
 * **Description:** At least one organization in the configuration must define one or more orderer nodes.
