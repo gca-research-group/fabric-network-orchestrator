@@ -47,6 +47,9 @@ Requirements:
 - Docker
 - Go 1.26 or later
 
+> [!IMPORTANT]
+> FNO's Docker-backed lifecycle commands require `sudo`. Hyperledger Fabric containers run as the root user and write to bind-mounted host directories, so generated files may be owned by root. Artefact generation and the developer-oriented Go commands below do not require elevated privileges.
+
 ```bash
 git clone https://github.com/gca-research-group/fabric-network-orchestrator
 cd fabric-network-orchestrator
@@ -59,16 +62,10 @@ go mod tidy
 ### Complete Deployment
 
 ```bash
-fno deploy --config samples/minimal-network.yml
+sudo fno deploy --config samples/minimal-network.yml
 ```
 
-Loads and validates the configuration once, then generates artifacts, deploys the network, and deploys configured chaincodes in sequence. The artifact output directory must be empty. Deployment stops at the first failure and reports the failed stage; completed stages are preserved. Use the individual commands below to resume after fixing a failure, such as `fno chaincode deploy` when only chaincode deployment failed.
-
-### Validate a Configuration
-
-```bash
-fno configuration validate --config samples/minimal-network.yml
-```
+Loads and validates the configuration once, then generates artifacts, deploys the network, and deploys configured chaincodes in sequence. The artifact output directory must be empty. Deployment stops at the first failure and reports the failed stage; completed stages are preserved. Use the individual commands below to resume after fixing a failure, such as `sudo fno chaincode deploy` when only chaincode deployment failed.
 
 ### Generate Artefacts
 
@@ -84,7 +81,7 @@ Generates:
 ### Deploy a Network
 
 ```bash
-fno network deploy --config samples/minimal-network.yml
+sudo fno network deploy --config samples/minimal-network.yml
 ```
 
 This command performs:
@@ -95,25 +92,25 @@ This command performs:
 4. Network provisioning
 5. Channel creation and joining
 
-Generate artifacts before running this command. Deploy chaincodes separately afterward, or use `fno deploy` for the complete workflow.
+Generate artifacts before running this command. Deploy chaincodes separately afterward, or use `sudo fno deploy` for the complete workflow.
 
 ### Manage Network Lifecycle
 
 ```bash
-fno network up --config samples/minimal-network.yml
-fno network down --config samples/minimal-network.yml
+sudo fno network up --config samples/minimal-network.yml
+sudo fno network down --config samples/minimal-network.yml
 ```
 
 ### Deploy Chaincodes
 
 ```bash
-fno chaincode deploy --config samples/minimal-network.yml
+sudo fno chaincode deploy --config samples/minimal-network.yml
 ```
 
 ### Clean Generated Artefacts
 
 ```bash
-fno artifacts clean --config samples/minimal-network.yml
+sudo fno artifacts clean --config samples/minimal-network.yml
 ```
 
 ## Configuration Example
@@ -272,6 +269,11 @@ Network and chaincode samples are available in:
 
 - [samples](./samples/)
 - [chaincodes](./samples/chaincodes)
+
+## Alternative Tools
+
+- [Fablo](https://github.com/hyperledger-labs/fablo) is a configurable Docker-based tool for running Hyperledger Fabric networks for local development, continuous integration, and experimentation.
+- [Fabric Test Network](https://hyperledger-fabric.readthedocs.io/en/latest/test_network.html) is the official sample network for learning about Fabric and testing smart contracts and applications. It is intended for education and testing, not as a production deployment template.
 
 ## License
 
