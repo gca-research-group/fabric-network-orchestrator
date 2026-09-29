@@ -1,6 +1,17 @@
 package config
 
+import "github.com/gca-research-group/fabric-network-orchestrator/internal/spec"
+
 func setUpDefaultValues(config *Config) {
+	for i := range config.Channels {
+		for j := range config.Channels[i].Chaincodes {
+			chaincode := &config.Channels[i].Chaincodes[j]
+			if chaincode.Language.Name == "" {
+				chaincode.Language.Name = spec.LanguageGo
+			}
+		}
+	}
+
 	for i := range config.Profiles {
 		profile := &config.Profiles[i]
 		if profile.Consensus.Type == "" {

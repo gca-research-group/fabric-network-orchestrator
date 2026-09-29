@@ -28,6 +28,7 @@ const (
 	RuleChaincodePathRequired            RuleID = "chaincode.path.required"
 	RuleChaincodeVersionRequired         RuleID = "chaincode.version.required"
 	RuleChaincodeNameDuplicate           RuleID = "chaincode.name.duplicate"
+	RuleChaincodeLanguageUnsupported     RuleID = "chaincode.language.unsupported"
 	RuleProfileOrganizationsRequired     RuleID = "profile.organizations.required"
 	RuleProfileNameRequired              RuleID = "profile.name.required"
 	RuleProfileNameDuplicate             RuleID = "profile.name.duplicate"

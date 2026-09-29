@@ -62,6 +62,33 @@ func TestPullChaincodeCompilerImages(t *testing.T) {
 	}
 }
 
+func TestPullChaincodeCompilerImagesForJavaAndNode(t *testing.T) {
+	cfg := config.Config{
+		Organizations: []config.Organization{{Peers: []config.Peer{{Version: "2.5.15"}, {Version: "3.0.1"}}}},
+		Channels: []config.Channel{{Chaincodes: []config.Chaincode{
+			{Name: "Java", Language: config.Language{Name: "java"}},
+			{Name: "Node", Language: config.Language{Name: "node"}},
+		}}},
+	}
+	e := &imageExecutor{}
+	if err := PullChaincodeCompilerImages(cfg, e); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"docker image ls --quiet --filter reference=hyperledger/fabric-ccenv:2.5",
+		"docker pull hyperledger/fabric-ccenv:2.5",
+		"docker image ls --quiet --filter reference=hyperledger/fabric-ccenv:3.0",
+		"docker pull hyperledger/fabric-ccenv:3.0",
+		"docker image ls --quiet --filter reference=hyperledger/fabric-javaenv:2.5",
+		"docker pull hyperledger/fabric-javaenv:2.5",
+		"docker image ls --quiet --filter reference=hyperledger/fabric-nodeenv:2.5",
+		"docker pull hyperledger/fabric-nodeenv:2.5",
+	}
+	if !reflect.DeepEqual(e.commands, want) {
+		t.Fatalf("want %v, got %v", want, e.commands)
+	}
+}
+
 func TestPullChaincodeCompilerImagesWithoutPeers(t *testing.T) {
 	for _, cfg := range []config.Config{{}, {Organizations: []config.Organization{{Name: "Org1"}}}} {
 		exec := &imageExecutor{}

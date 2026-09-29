@@ -268,7 +268,7 @@ Subcommands are required: replace the former `experiment-runner --seed ...` invo
 Network and chaincode samples are available in:
 
 - [samples](./samples/)
-- [chaincodes](./samples/chaincodes)
+- [chaincodes](./samples/chaincodes) — Go, Java, and Node.js examples. `samples/network-with-chaincode.yml` deploys all three asset contracts as `Asset`, `AssetJava`, and `AssetNode`; each exposes `CreateAsset(id, owner, value)`, `ReadAsset(id)`, and `TransferAsset(id, newOwner)`. Configure `language.name` as `golang`, `java`, or `node` (`golang` is the default). Each sample directory needs a unique final path component because the tools container mounts chaincode by that name.
 
 ## Alternative Tools
 

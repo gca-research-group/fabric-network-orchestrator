@@ -44,17 +44,16 @@ channels:
     chaincodes:
       - name: Asset
         version: "1.0"
-        path: samples/chaincodes/asset
+        path: samples/chaincodes/go/asset-go
         language:
           name: golang
-          version: "1.26"
 
       - name: Product
         version: "1.0"
-        path: samples/chaincodes/product
+        path: samples/chaincodes/go/product
 
       - name: PrivateAgreement
         version: "1.0"
-        path: samples/chaincodes/private-agreement
+        path: samples/chaincodes/go/private-agreement
         channelConfigPolicy: Channel/Application/Endorsement
-        collectionsConfig: samples/chaincodes/private-agreement/collections_config.json
+        collectionsConfig: samples/chaincodes/go/private-agreement/collections_config.json

@@ -71,18 +71,17 @@ channels:
     chaincodes:
       - name: Asset
         version: "1.0"
-        path: samples/chaincodes/asset
+        path: samples/chaincodes/go/asset-go
         language:
           name: golang
-          version: "1.26"
 
       - name: Product
         version: "1.0"
-        path: samples/chaincodes/product
+        path: samples/chaincodes/go/product
 
       - name: PrivateAgreement
         version: "1.0"
-        path: samples/chaincodes/private-agreement
+        path: samples/chaincodes/go/private-agreement
 `
 
 var allRuleIDs = []validate.RuleID{
@@ -111,6 +110,7 @@ var allRuleIDs = []validate.RuleID{
 	validate.RuleChaincodePathRequired,
 	validate.RuleChaincodeVersionRequired,
 	validate.RuleChaincodeNameDuplicate,
+	validate.RuleChaincodeLanguageUnsupported,
 	validate.RuleProfileOrganizationsRequired,
 	validate.RuleProfileNameRequired,
 	validate.RuleProfileNameDuplicate,
@@ -479,6 +479,37 @@ func TestGeneratedCombinationsExcludeIncompatibleRules(t *testing.T) {
 	for _, ruleID := range allRuleIDs {
 		if !represented[ruleID] {
 			t.Errorf("rule %s is not represented by any generated combination", ruleID)
+		}
+	}
+}
+
+func TestChaincodeLanguageMutationCombinesWithOtherChaincodeRules(t *testing.T) {
+	for _, other := range []validate.RuleID{
+		validate.RuleChaincodeNameRequired,
+		validate.RuleChaincodePathRequired,
+		validate.RuleChaincodeVersionRequired,
+		validate.RuleChaincodeNameDuplicate,
+	} {
+		languageOperator, found := FindMutationOperator(ScenarioMutation{Rule: validate.RuleChaincodeLanguageUnsupported})
+		if !found {
+			t.Fatal("missing language operator")
+		}
+		otherOperator, found := FindMutationOperator(ScenarioMutation{Rule: other})
+		if !found {
+			t.Fatalf("missing operator %s", other)
+		}
+		if rulesConflict(languageOperator.RuleID, otherOperator.RuleID, incompatibilities) {
+			t.Fatalf("language rule unexpectedly conflicts with %s", other)
+		}
+		node := seedNode(t)
+		languageOperator.Apply(node.Document())
+		otherOperator.Apply(node.Document())
+		actual := make(map[validate.RuleID]bool)
+		for _, validationError := range validate.Errors(validate.Config(decodeConfig(t, node))) {
+			actual[validationError.RuleID] = true
+		}
+		if !actual[validate.RuleChaincodeLanguageUnsupported] || !actual[other] {
+			t.Fatalf("combined mutations did not trigger both rules: %s, %s; got %v", validate.RuleChaincodeLanguageUnsupported, other, actual)
 		}
 	}
 }

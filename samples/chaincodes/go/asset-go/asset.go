@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/hyperledger/fabric-contract-api-go/contractapi"
 )
@@ -14,20 +13,25 @@ type SmartContract struct {
 }
 
 type Asset struct {
-	ID        string `json:"id"`
-	Owner     string `json:"owner"`
-	Value     int    `json:"value"`
-	CreatedAt string `json:"createdAt"`
+	ID    string `json:"id"`
+	Owner string `json:"owner"`
+	Value int    `json:"value"`
 }
 
 func (s *SmartContract) CreateAsset(ctx contractapi.TransactionContextInterface,
 	id string, owner string, value int) error {
+	existing, err := ctx.GetStub().GetState(id)
+	if err != nil {
+		return err
+	}
+	if existing != nil {
+		return fmt.Errorf("asset %s already exists", id)
+	}
 
 	asset := Asset{
-		ID:        id,
-		Owner:     owner,
-		Value:     value,
-		CreatedAt: time.Now().UTC().String(),
+		ID:    id,
+		Owner: owner,
+		Value: value,
 	}
 
 	bytes, _ := json.Marshal(asset)

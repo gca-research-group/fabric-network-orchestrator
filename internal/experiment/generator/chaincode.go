@@ -31,3 +31,10 @@ var chaincodeVersionRequiredOperators = []MutationOperator{{
 		chaincode(node, "defaultchannel", "Asset").GetValue("version").SetScalar("", yaml.StringType)
 	},
 }}
+
+var chaincodeLanguageUnsupportedOperators = []MutationOperator{{
+	RuleID: validate.RuleChaincodeLanguageUnsupported,
+	Apply: func(node *yaml.Node) {
+		chaincode(node, "defaultchannel", "Asset").GetValue("language").GetValue("name").SetScalar("python", yaml.StringType)
+	},
+}}

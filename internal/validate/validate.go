@@ -61,6 +61,7 @@ func Config(configuration spec.Config) error {
 			collect(EmptyChaincodeNameFn(chaincode, i))
 			collect(EmptyChaincodePathFn(chaincode, i))
 			collect(EmptyChaincodeVersionFn(chaincode, i))
+			collect(UnsupportedChaincodeLanguageFn(chaincode))
 			collect(DuplicateChaincodeNameFn(chaincode, channel.Name, chaincodeNames))
 		}
 	}

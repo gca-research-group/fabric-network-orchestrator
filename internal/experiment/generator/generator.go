@@ -60,6 +60,7 @@ var operators = indexOperators([][]MutationOperator{
 	ordererPortInvalidOperators,
 	chaincodePathRequiredOperators,
 	chaincodeVersionRequiredOperators,
+	chaincodeLanguageUnsupportedOperators,
 	channelProfileRequiredOperators,
 	channelNameInvalidOperators,
 	channelCapabilityUnsupportedOperators,

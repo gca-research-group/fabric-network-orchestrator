@@ -7,16 +7,26 @@ import (
 
 	"github.com/gca-research-group/fabric-network-orchestrator/internal/config"
 	"github.com/gca-research-group/fabric-network-orchestrator/internal/executor"
+	"github.com/gca-research-group/fabric-network-orchestrator/internal/spec"
 
 	mapset "github.com/deckarep/golang-set/v2"
 )
 
 func PullChaincodeCompilerImages(config config.Config, executor executor.Executor) error {
 	images := mapset.NewSet[string]()
+	languages := configuredChaincodeLanguages(config)
 
 	for _, organization := range config.Organizations {
 		for _, peer := range organization.Peers {
 			images.Add(ResolveChaincodeCompilerImage(peer))
+
+			if languages.Contains(spec.LanguageJava) {
+				images.Add(resolveChaincodeRuntimeImage(peer, spec.LanguageJava))
+			}
+
+			if languages.Contains(spec.LanguageNode) {
+				images.Add(resolveChaincodeRuntimeImage(peer, spec.LanguageNode))
+			}
 		}
 	}
 
@@ -56,6 +66,16 @@ func PullImages(config config.Config, executor executor.Executor) error {
 		}
 
 		images.Add(ResolveToolsImage(config.Capabilities))
+	}
+
+	for language := range configuredChaincodeLanguages(config).Iter() {
+		for _, organization := range config.Organizations {
+			for _, peer := range organization.Peers {
+				if language == spec.LanguageJava || language == spec.LanguageNode {
+					images.Add(resolveChaincodeRuntimeImage(peer, language))
+				}
+			}
+		}
 	}
 
 	for image := range images.Iter() {

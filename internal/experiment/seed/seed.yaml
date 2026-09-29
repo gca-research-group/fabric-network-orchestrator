@@ -34,6 +34,7 @@ organizations:
     certificateAuthority:
       exposePort: 8054
       version: latest
+    orderers: []
     peers:
       - name: Peer0
         subdomain: peer0
@@ -48,6 +49,7 @@ organizations:
     certificateAuthority:
       exposePort: 9054
       version: latest
+    orderers: []
     peers:
       - name: Peer0
         subdomain: peer0
@@ -68,20 +70,26 @@ channels:
     profile: DefaultProfile
     chaincodes:
       - name: Asset
-        path: samples/chaincodes/asset
+        path: samples/chaincodes/go/asset-go
         version: "1.0"
+        signaturePolicy: ""
+        channelConfigPolicy: ""
+        collectionsConfig: ""
         language:
           name: golang
-          version: "1.26"
       - name: Product
-        path: samples/chaincodes/product
+        path: samples/chaincodes/go/product
         version: "1.0"
+        signaturePolicy: ""
+        channelConfigPolicy: ""
+        collectionsConfig: ""
         language:
           name: golang
-          version: "1.26"
       - name: PrivateAgreement
-        path: samples/chaincodes/private-agreement
+        path: samples/chaincodes/go/private-agreement
         version: "1.0"
+        signaturePolicy: ""
+        channelConfigPolicy: ""
+        collectionsConfig: ""
         language:
           name: golang
-          version: "1.26"

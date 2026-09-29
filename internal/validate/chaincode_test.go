@@ -1,9 +1,17 @@
 package validate
 
 import (
-	"github.com/gca-research-group/fabric-network-orchestrator/internal/spec"
 	"testing"
+
+	"github.com/gca-research-group/fabric-network-orchestrator/internal/spec"
 )
+
+func TestUnsupportedChaincodeLanguageFn(t *testing.T) {
+	for _, language := range []string{"", spec.LanguageGo, spec.LanguageJava, spec.LanguageNode} {
+		assertNoError(t, UnsupportedChaincodeLanguageFn(spec.Chaincode{Language: spec.Language{Name: language}}))
+	}
+	assertValidationError(t, UnsupportedChaincodeLanguageFn(spec.Chaincode{Name: "Asset", Language: spec.Language{Name: "python"}}), RuleChaincodeLanguageUnsupported, "Unsupported Chaincode Language", "chaincode Asset has unsupported language \"python\" (supported: golang, java, node)")
+}
 
 func TestEmptyChaincodeNameFn(t *testing.T) {
 	assertValidationError(t, EmptyChaincodeNameFn(spec.Chaincode{}, 4), RuleChaincodeNameRequired, "Empty Chaincode Name", "name of the chaincode 4 is empty")

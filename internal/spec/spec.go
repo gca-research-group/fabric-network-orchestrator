@@ -1,5 +1,11 @@
 package spec
 
+const (
+	LanguageGo   = "golang"
+	LanguageJava = "java"
+	LanguageNode = "node"
+)
+
 type CapabilityLevel int
 
 const (
@@ -81,8 +87,7 @@ type Capabilities struct {
 }
 
 type Language struct {
-	Name    string `yaml:"name" json:"name" toml:"name"`
-	Version string `yaml:"version" json:"version" toml:"version"`
+	Name string `yaml:"name" json:"name" toml:"name"`
 }
 
 type Chaincode struct {

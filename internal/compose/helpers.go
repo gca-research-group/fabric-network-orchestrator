@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/docker/docker/client"
 	"github.com/gca-research-group/fabric-network-orchestrator/internal/config"
 	"github.com/gca-research-group/fabric-network-orchestrator/internal/constants"
 	"github.com/gca-research-group/fabric-network-orchestrator/internal/executor"
+	"github.com/gca-research-group/fabric-network-orchestrator/internal/spec"
 )
 
 func ResolvePeerPort(port int) int {
@@ -213,4 +215,21 @@ func ResolveChaincodeHostDir(chaincode config.Chaincode) string {
 	}
 
 	return hostDir
+}
+
+func configuredChaincodeLanguages(cfg config.Config) mapset.Set[string] {
+	languages := mapset.NewSet[string]()
+	for _, chaincode := range config.ResolveChaincodes(cfg) {
+		languages.Add(chaincode.Language.Name)
+	}
+	return languages
+}
+
+func resolveChaincodeRuntimeImage(peer config.Peer, language string) string {
+	version := strings.TrimPrefix(ResolveChaincodeCompilerImage(peer), "hyperledger/fabric-ccenv:")
+	if strings.HasPrefix(version, "3.") {
+		version = "2.5"
+	}
+
+	return "hyperledger/fabric-" + map[string]string{spec.LanguageJava: "javaenv", spec.LanguageNode: "nodeenv"}[language] + ":" + version
 }

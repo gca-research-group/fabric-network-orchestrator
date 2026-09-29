@@ -40,3 +40,12 @@ func EmptyChaincodeVersionFn(chaincode spec.Chaincode, index int) error {
 
 	return nil
 }
+
+func UnsupportedChaincodeLanguageFn(chaincode spec.Chaincode) error {
+	switch chaincode.Language.Name {
+	case "", spec.LanguageGo, spec.LanguageJava, spec.LanguageNode:
+		return nil
+	default:
+		return validationError(RuleChaincodeLanguageUnsupported, "Unsupported Chaincode Language", fmt.Sprintf("chaincode %s has unsupported language %q (supported: golang, java, node)", chaincode.Name, chaincode.Language.Name))
+	}
+}

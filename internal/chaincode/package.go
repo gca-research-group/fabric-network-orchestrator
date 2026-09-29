@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/gca-research-group/fabric-network-orchestrator/internal/config"
+	"github.com/gca-research-group/fabric-network-orchestrator/internal/spec"
 )
 
 func (c *Chaincode) Package() error {
@@ -18,22 +19,28 @@ func (c *Chaincode) Package() error {
 		label := ResolveLabel(chaincode)
 		tarfile := ResolveChaincodeTar(chaincode)
 		chaincodePath := ResolveChaincodePath(chaincode)
+		language := chaincode.Language.Name
 
-		steps := []struct {
+		type packageStep struct {
 			name    string
 			message string
 			args    []string
-		}{
-			{"Initialize", "Error when initializing the chaincode module %s: %v", []string{
-				"sh", "-c", fmt.Sprintf("cd %s && [ -f go.mod ] || go mod init %s; go mod tidy", chaincodePath, name),
-			}},
-			{"Package", "Error when packaging the chaincode %s: %v", []string{
-				"peer", "lifecycle", "chaincode", "package", tarfile,
-				"--path", chaincodePath,
-				"--lang", "golang",
-				"--label", label,
-			}},
 		}
+
+		steps := []packageStep{}
+
+		if language == spec.LanguageGo {
+			steps = append(steps, packageStep{"Initialize", "Error when initializing the chaincode module %s: %v", []string{
+				"sh", "-c", fmt.Sprintf("cd %s && [ -f go.mod ] || go mod init %s; go mod tidy", chaincodePath, name),
+			}})
+		}
+
+		steps = append(steps, packageStep{"Package", "Error when packaging the chaincode %s: %v", []string{
+			"peer", "lifecycle", "chaincode", "package", tarfile,
+			"--path", chaincodePath,
+			"--lang", language,
+			"--label", label,
+		}})
 
 		for _, step := range steps {
 			slog.Info("Executing step", "step", step.name)
